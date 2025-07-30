@@ -7,7 +7,11 @@ ENV C4D_VERSION=2025
 ENV C4D_LOCATION=/opt/cinema4d
 ENV C4D_COMMANDLINE_EXECUTABLE=/opt/cinema4d/bin/Commandline
 
-# Install basic dependencies and GUI libraries
+# Enable EPEL and additional repositories
+RUN dnf install -y epel-release && \
+    dnf config-manager --set-enabled crb
+
+# Install basic dependencies and required libraries for Cinema4D
 RUN dnf update -y && \
     dnf install -y \
     wget \
@@ -25,7 +29,28 @@ RUN dnf update -y && \
     gdk-pixbuf2 \
     libsoup \
     libnotify \
+    webkit2gtk3 \
+    python3.11 \
+    python3.11-libs \
+    python3.11-devel \
+    tbb \
+    tbb-devel \
     && dnf clean all
+
+# Try to install additional libraries from EPEL
+RUN dnf install -y \
+    openvdb \
+    embree3 \
+    && dnf clean all || true
+
+# Create symbolic links for libraries that Cinema4D expects
+RUN mkdir -p /usr/lib64 && \
+    find /usr/lib64 -name "libpython3.11*.so*" -exec ln -sf {} /usr/lib64/libpython3.11.so.1.0 \; 2>/dev/null || true && \
+    find /usr/lib64 -name "libtbb.so*" -exec ln -sf {} /usr/lib64/libtbb.so.12 \; 2>/dev/null || true && \
+    find /usr/lib64 -name "libtbb.so*" -exec ln -sf {} /usr/lib64/libtbb.so.2 \; 2>/dev/null || true && \
+    find /usr/lib64 -name "libembree*.so*" -exec ln -sf {} /usr/lib64/libembree3.so.3 \; 2>/dev/null || true && \
+    find /usr/lib64 -name "libopenvdb*.so*" -exec ln -sf {} /usr/lib64/libopenvdb.so.9.0 \; 2>/dev/null || true && \
+    find /usr/lib64 -name "libwebkit2gtk*.so*" -exec ln -sf {} /usr/lib64/libwebkit2gtk-4.0.so.37 \; 2>/dev/null || true
 
 # Create cinema4d user
 RUN useradd -m -s /bin/bash cinema4d
