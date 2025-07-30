@@ -1,0 +1,122 @@
+specificationVersion: 'jobtemplate-2023-09'
+name: Cinema4D-2025
+parameterDefinitions:
+- name: Message
+  type: STRING
+  default: Welcome to AWS Deadline Cloud Cinema4D!
+- name: ECR_REGISTRY
+  type: STRING
+  default: 224071664257.dkr.ecr.us-west-2.amazonaws.com
+- name: CINEMA4D_REPOSITORY
+  type: STRING
+  default: sqex2
+- name: CINEMA4D_TAG
+  type: STRING
+  default: cinema4d-2025
+- name: AWS_REGION
+  type: STRING
+  default: us-west-2
+- name: Cinema4DSceneFile
+  type: PATH
+  default: simple_cube_2025.c4d
+  dataFlow: IN
+  objectType: FILE
+steps:
+- name: Cinema4DRender
+  script:
+    actions:
+      onRun:
+        command: bash
+        args: ['{{Task.File.Run}}']
+    embeddedFiles:
+    - name: Run
+      type: TEXT
+      data: |
+        #!/bin/bash
+        set -e  # Exit on error
+        
+        echo '{{Param.Message}}'
+        echo "Current user: $(whoami)"
+        echo "Current directory: $(pwd)"
+        
+        # Login to ECR and pull the latest Cinema4D image
+        echo "Logging in to Amazon ECR and pulling the latest Cinema4D image..."
+        aws ecr get-login-password --region {{Param.AWS_REGION}} | docker login --username AWS --password-stdin {{Param.ECR_REGISTRY}}
+        docker pull {{Param.ECR_REGISTRY}}/{{Param.CINEMA4D_REPOSITORY}}:{{Param.CINEMA4D_TAG}}
+        
+        # Create a directory for the Cinema4D render
+        mkdir -p ./cinema4d_render
+        
+        # Pass through license environment variables from host
+        echo "Passing through license environment variables from host..."
+        
+        # Print out environment variables inside the container
+        echo "Printing container environment variables..."
+        docker run --rm \
+          -v "$(pwd)/cinema4d_render:/work" \
+          -w /work \
+          -e redshift_LICENSE \
+          {{Param.ECR_REGISTRY}}/{{Param.CINEMA4D_REPOSITORY}}:{{Param.CINEMA4D_TAG}} \
+          env | sort
+        
+        # Copy the Cinema4D scene file to the render directory
+        cp {{Param.Cinema4DSceneFile}} ./cinema4d_render/
+        
+        echo "Before running the render...."
+        docker run --rm \
+          -v "$(pwd)/cinema4d_render:/work" \
+          -w /work \
+          {{Param.ECR_REGISTRY}}/{{Param.CINEMA4D_REPOSITORY}}:{{Param.CINEMA4D_TAG}} \
+          ls -la /work/
+
+        # Run Cinema4D in the Docker container to render the scene
+        echo "Rendering the Cinema4D scene..."
+        docker run --rm \
+          --network host \
+          -v "$(pwd)/cinema4d_render:/work" \
+          -w /work \
+          -e redshift_LICENSE \
+          {{Param.ECR_REGISTRY}}/{{Param.CINEMA4D_REPOSITORY}}:{{Param.CINEMA4D_TAG}} \
+          bash -c "/opt/maxon/cinema4dr2025.301/bin/Commandline -render /work/simple_cube_2025.c4d -oimage /work/output -oformat PNG -oresolution 800 600"
+        
+        echo "Checking container output folder...."
+        docker run --rm \
+          -v "$(pwd)/cinema4d_render:/work" \
+          -w /work \
+          {{Param.ECR_REGISTRY}}/{{Param.CINEMA4D_REPOSITORY}}:{{Param.CINEMA4D_TAG}} \
+          ls -la /work/
+        
+        echo "Checking output folder...."
+        ls -la $(pwd)/cinema4d_render
+        
+        # Cleanup Docker containers and images
+        echo "Cleaning up Docker resources..."
+        # Remove all stopped containers
+        docker container prune -f
+        # Remove dangling images (images with no tags)
+        docker image prune -f
+        
+        echo "Docker cleanup complete."
+        
+        # Check if any output files were created (Cinema4D typically creates images with various extensions)
+        OUTPUT_FILES=$(find ./cinema4d_render -name "*.png" -o -name "*.jpg" -o -name "*.tiff" -o -name "*.exr" | head -1)
+        if [ -n "$OUTPUT_FILES" ]; then
+          echo "Rendering complete. Output files found in ./cinema4d_render/"
+          # Copy the first output file to job results directory
+          OUTPUT_FILE=$(basename "$OUTPUT_FILES")
+          cp "$OUTPUT_FILES" ./
+          echo "Output copied to job results directory: $OUTPUT_FILE"
+          
+          # Upload the output file to S3
+          TIMESTAMP=$(date +%Y%m%d-%H%M%S)
+          echo "Uploading $OUTPUT_FILE to S3 bucket adeadlineja at path dockerout/cinema4d-${TIMESTAMP}-${OUTPUT_FILE}"
+          aws s3 cp "./$OUTPUT_FILE" "s3://adeadlineja/dockerout/cinema4d-${TIMESTAMP}-${OUTPUT_FILE}"
+          if [ $? -eq 0 ]; then
+            echo "Successfully uploaded to S3"
+          else
+            echo "Failed to upload to S3"
+          fi
+        else
+          echo "Error: Rendering failed. No output files were created."
+          exit 1
+        fi

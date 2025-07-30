@@ -1,0 +1,59 @@
+FROM rockylinux:9
+
+# Set environment variables
+ENV LANG=en_US.UTF-8
+ENV LC_ALL=en_US.UTF-8
+ENV C4D_VERSION=2025
+ENV C4D_LOCATION=/opt/cinema4d
+ENV C4D_COMMANDLINE_EXECUTABLE=/opt/cinema4d/bin/Commandline
+
+# Install basic dependencies and GUI libraries
+RUN dnf update -y && \
+    dnf install -y \
+    wget \
+    unzip \
+    tar \
+    gzip \
+    bzip2 \
+    which \
+    procps-ng \
+    libX11 \
+    gtk3 \
+    atk \
+    pango \
+    cairo \
+    gdk-pixbuf2 \
+    libsoup \
+    libnotify \
+    && dnf clean all
+
+# Create cinema4d user
+RUN useradd -m -s /bin/bash cinema4d
+
+# Set working directory
+WORKDIR /opt/cinema4d
+
+# Copy Cinema4D installer
+COPY Cinema4D_2025_2025.3.1_Linux.sh /tmp/
+
+# Make installer executable and run installation
+RUN chmod +x /tmp/Cinema4D_2025_2025.3.1_Linux.sh && \
+    /tmp/Cinema4D_2025_2025.3.1_Linux.sh --quiet --accept --nox11 && \
+    rm -f /tmp/Cinema4D_2025_2025.3.1_Linux.sh
+
+# Set up Redshift plugin path (if Redshift is installed)
+ENV g_additionalModulePath=/opt/maxon/cinema4dr2025.301/bin/plugins
+
+# Ensure Python ensurepip is available for Cinema4D's Python
+RUN if [ -f /opt/cinema4d/resource/modules/python/libs/linux64/python ]; then \
+        /opt/cinema4d/resource/modules/python/libs/linux64/python -m ensurepip || true; \
+    fi
+
+# Set ownership
+RUN chown -R cinema4d:cinema4d /opt/cinema4d
+
+# Switch to cinema4d user
+USER cinema4d
+
+# Set default command
+CMD ["/bin/bash"]
