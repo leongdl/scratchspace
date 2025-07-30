@@ -1,0 +1,180 @@
+specificationVersion: 'jobtemplate-2023-09'
+name: Houdini-VRay
+parameterDefinitions:
+- name: Message
+  type: STRING
+  default: Welcome to AWS Deadline Cloud!
+- name: ECR_REGISTRY
+  type: STRING
+  default: 224071664257.dkr.ecr.us-west-2.amazonaws.com
+- name: HOUDINI_REPOSITORY
+  type: STRING
+  default: sqex2
+- name: HOUDINI_TAG
+  type: STRING
+  default: houdini-latest
+- name: AWS_REGION
+  type: STRING
+  default: us-west-2
+- name: HoudiniVRayScriptFile
+  type: PATH
+  default: houdini-vray.py
+  dataFlow: IN
+  objectType: FILE
+- name: HoudiniEnvFile
+  type: PATH
+  default: houdini-env.json
+  dataFlow: IN
+  objectType: FILE
+steps:
+- name: HoudiniVRayRender
+  script:
+    actions:
+      onRun:
+        command: bash
+        args: ['{{Task.File.Run}}']
+    embeddedFiles:
+    - name: Run
+      type: TEXT
+      data: |
+        #!/bin/bash
+        set -e  # Exit on error
+        
+        echo '{{Param.Message}}'
+        echo "Current user: $(whoami)"
+        echo "Current directory: $(pwd)"
+        
+        # Login to ECR and pull the latest Houdini image
+        echo "Logging in to Amazon ECR and pulling the latest Houdini image..."
+        aws ecr get-login-password --region {{Param.AWS_REGION}} | docker login --username AWS --password-stdin {{Param.ECR_REGISTRY}}
+        docker pull {{Param.ECR_REGISTRY}}/{{Param.HOUDINI_REPOSITORY}}:{{Param.HOUDINI_TAG}}
+        
+        # Create a directory for the Houdini V-Ray render
+        mkdir -p ./houdini_vray_render
+        
+        # Pass through license environment variables from host
+        echo "Passing through license environment variables from host..."
+        
+        # Print out environment variables inside the container
+        echo "Printing container environment variables..."
+        docker run --rm \
+          -v "$(pwd)/houdini_vray_render:/work" \
+          -w /work \
+          -e SESI_LICENSE_SERVER \
+          -e SESI_LMHOST \
+          -e redshift_LICENSE \
+          -e VRAY_AUTH_CLIENT_FILE_PATH \
+          -e VRAY_AUTH_CLIENT_SETTINGS \
+          {{Param.ECR_REGISTRY}}/{{Param.HOUDINI_REPOSITORY}}:{{Param.HOUDINI_TAG}} \
+          env | sort
+        
+        # Copy the Houdini V-Ray script to the render directory
+        cp {{Param.HoudiniVRayScriptFile}} ./houdini_vray_render/create_scene.py
+        
+        # Copy the Houdini environment configuration file
+        #cp {{Param.HoudiniEnvFile}} ./houdini_vray_render/houdini-env.json
+        
+        # Replace the VRay package configuration with the custom houdini-env.json
+        #echo "Replacing VRay package configuration with custom houdini-env.json..."
+        #docker run --rm \
+        #  -v "$(pwd)/houdini_vray_render:/work" \
+        #  -w /work \
+        #  {{Param.ECR_REGISTRY}}/{{Param.HOUDINI_REPOSITORY}}:{{Param.HOUDINI_TAG}} \
+        #  bash -c "
+        #    # Update the INSTALL_ROOT path in the houdini-env.json file
+        #    sed 's|REPLACE_WITH_PATH_TO_UNPACKED_ARCHIVE|/opt/vray|g' /work/houdini-env.json > /tmp/vray_for_houdini.json &&
+        #    # Replace the existing VRay package configuration
+        #    cp /tmp/vray_for_houdini.json /opt/houdini/packages/vray_for_houdini.json &&
+        #    echo 'VRay package configuration updated successfully' &&
+        #    cat /opt/houdini/packages/vray_for_houdini.json
+        #  "
+
+        # Run Houdini in the Docker container to create the scene
+        echo "Creating a simple Houdini scene with a V-Ray renderer..."
+        docker run --rm \
+          --network host \
+          --ulimit stack=52428800 \
+          -v "$(pwd)/houdini_vray_render:/work" \
+          -w /work \
+          -e SESI_LMHOST \
+          -e redshift_LICENSE \
+          -e VRAY_AUTH_CLIENT_FILE_PATH \
+          -e VRAY_AUTH_CLIENT_SETTINGS \
+          {{Param.ECR_REGISTRY}}/{{Param.HOUDINI_REPOSITORY}}:{{Param.HOUDINI_TAG}} \
+          bash -c "cd /opt/houdini && source ./houdini_setup_bash && echo 'Testing VRay environment:' && /opt/houdini/bin/hython -c \"import os; vray_vars = {k:v for k,v in os.environ.items() if 'vray' in k.lower() or 'vfh' in k.lower()}; print(f'VRay env vars: {vray_vars}')\" && /opt/houdini/bin/hython /work/create_scene.py"
+
+        echo "Before running the scene...."
+        docker run --rm \
+          -v "$(pwd)/houdini_vray_render:/work" \
+          -w /work \
+          {{Param.ECR_REGISTRY}}/{{Param.HOUDINI_REPOSITORY}}:{{Param.HOUDINI_TAG}} \
+          ls -la /work/
+
+        # Run Houdini in the Docker container to render the scene
+        echo "Rendering the simple scene with V-Ray..."
+        
+        # Original complex VRay environment setup (commented out)
+        # docker run --rm \
+        #   --network host \
+        #   --ulimit stack=52428800 \
+        #   -v "$(pwd)/houdini_vray_render:/work" \
+        #   -w /work \
+        #   -e SESI_LMHOST \
+        #   -e redshift_LICENSE \
+        #   -e VRAY_AUTH_CLIENT_FILE_PATH \
+        #   -e VRAY_AUTH_CLIENT_SETTINGS \
+        #   {{Param.ECR_REGISTRY}}/{{Param.HOUDINI_REPOSITORY}}:{{Param.HOUDINI_TAG}} \
+        #   bash -c "cd /opt/houdini && source ./houdini_setup_bash && export LD_LIBRARY_PATH=\"/opt/houdini/dsolib:\$LD_LIBRARY_PATH\" && export VRAY_PATH=/opt/vray && export VRAY_APPSDK=\$VRAY_PATH/appsdk && export VFH_HOME=\$VRAY_PATH/vfh_home && export VRAY_OSL_PATH=\$VRAY_APPSDK/bin && export VRAY_UI_DS_PATH=\$VRAY_PATH/ui && export PYTHONPATH=\$VRAY_APPSDK/python:/opt/houdini/houdini/soho/python3.11:/opt/houdini/python/lib/python3.11/site-packages:/opt/houdini/python/lib/python3.11/site-packages-forced:\$PYTHONPATH && export PATH=\$VRAY_APPSDK/bin:\$VFH_HOME/bin:\$PATH && export HOUDINI_PATH=\$VFH_HOME:\$HOUDINI_PATH && export HOUDINI13_VOLUME_COMPATIBILITY=1 && export HDF5_DISABLE_VERSION_CHECK=1 && /opt/houdini/bin/hrender -e -d /out/vray_renderer -f 1 1 /work/simple_scene_vray.hip -v"
+        
+        # Simplified VRay rendering (like line 104)
+        docker run --rm \
+          --network host \
+          --ulimit stack=52428800 \
+          -v "$(pwd)/houdini_vray_render:/work" \
+          -w /work \
+          -e SESI_LMHOST \
+          -e redshift_LICENSE \
+          -e VRAY_AUTH_CLIENT_FILE_PATH \
+          -e VRAY_AUTH_CLIENT_SETTINGS \
+          {{Param.ECR_REGISTRY}}/{{Param.HOUDINI_REPOSITORY}}:{{Param.HOUDINI_TAG}} \
+          bash -c "cd /opt/houdini && source ./houdini_setup_bash && /opt/houdini/bin/hrender -e -d /out/vray_renderer -f 1 1 /work/simple_scene_vray.hip -v"
+        
+        echo "Checking container output folder...."
+        docker run --rm \
+          -v "$(pwd)/houdini_vray_render:/work" \
+          -w /work \
+          {{Param.ECR_REGISTRY}}/{{Param.HOUDINI_REPOSITORY}}:{{Param.HOUDINI_TAG}} \
+          ls -la /work/
+        
+        echo "Checking output folder...."
+        ls -la $(pwd)/houdini_vray_render
+        
+        # Cleanup Docker containers and images
+        echo "Cleaning up Docker resources..."
+        # Remove all stopped containers
+        docker container prune -f
+        # Remove dangling images (images with no tags)
+        docker image prune -f
+        
+        echo "Docker cleanup complete."
+        
+        # Check if the output file was created
+        if [ -f "$(pwd)/houdini_vray_render/vray_output.png" ]; then
+          echo "Rendering complete. Output saved as ./houdini_vray_render/vray_output.png"
+          # Copy the output to a location that will be saved with the job results
+          cp ./houdini_vray_render/vray_output.png ./
+          echo "Output copied to job results directory"
+          
+          # Upload the output file to S3
+          TIMESTAMP=$(date +%Y%m%d-%H%M%S)
+          echo "Uploading vray_output.png to S3 bucket adeadlineja at path dockerout/vray-${TIMESTAMP}.png"
+          aws s3 cp ./houdini_vray_render/vray_output.png s3://adeadlineja/dockerout/vray-${TIMESTAMP}.png
+          if [ $? -eq 0 ]; then
+            echo "Successfully uploaded to S3"
+          else
+            echo "Failed to upload to S3"
+          fi
+        else
+          echo "Error: Rendering failed. No output file was created."
+          exit 1
+        fi

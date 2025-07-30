@@ -1,0 +1,305 @@
+FROM rockylinux:9
+
+# Set locale
+ENV LANG=en_US.UTF-8
+ENV LC_ALL=en_US.UTF-8
+ENV LC_NUMERIC=en_US.UTF-8
+
+# Note: Docker container stack size must be set at runtime with --ulimit stack=<size>:<size>
+# We'll set a more modest increase in the scripts themselves
+
+# Add metadata
+LABEL maintainer="SuperDave"
+LABEL description="Houdini with VRay Docker container based on Rocky Linux 9"
+
+# Create installation directories
+RUN mkdir -p /install /install/houdini_vray /install/houdini
+
+# Install necessary tools and dependencies
+RUN dnf install -y unzip tar gzip bzip2 which libX11 libXext libXrender libXrandr libXfixes libXcursor libXinerama libXi glibc-langpack-en gtk3 mesa-libGL
+
+# Copy Houdini and VRay files into the container
+COPY houdini-20.5.487-linux_x86_64_gcc11.2.tar.gz /install/
+COPY vray_adv_70010_houdini20.5_gcc11_linux.zip /install/
+
+# Unzip VRay to /install/houdini_vray
+RUN unzip /install/vray_adv_70010_houdini20.5_gcc11_linux.zip -d /install/houdini_vray
+
+# Extract Houdini to /install/houdini (not in root's home folder as per recommendation)
+RUN tar -xzf /install/houdini-20.5.487-linux_x86_64_gcc11.2.tar.gz -C /install/houdini
+
+#######################################
+# Houdini Installation Section
+#######################################
+
+# Install additional dependencies required for Houdini
+RUN dnf install -y libSM libICE libXt libXcomposite libXdamage libXfixes libXext libXrender libXi \
+    libXtst libXau libxcb libXdmcp libXinerama libXrandr libXcursor libXScrnSaver \
+    alsa-lib mesa-libGL mesa-libGLU libglvnd-glx libglvnd-opengl bc tcsh python3.11 \
+    nss nspr pciutils sudo
+
+# Install Qt dependencies for Houdini rendering
+RUN dnf install -y qt5-qtbase-gui qt5-qtx11extras xorg-x11-server-Xvfb mesa-dri-drivers mesa-libGL mesa-libGLU libXi libXrender libXfixes libXcursor libXinerama libXrandr libXcomposite libxshmfence libXdamage libXtst libXScrnSaver
+
+# Install Python dependencies for Houdini
+RUN dnf install -y python3-pip && \
+    pip3 install future lxml requests
+
+# Run the Houdini installer script in silent mode
+RUN cd /install/houdini/houdini-20.5.487-linux_x86_64_gcc11.2 && \
+    ./houdini.install \
+    --auto-install \
+    --accept-EULA 2021-10-13 \
+    --no-install-engine-maya \
+    --no-install-engine-unity \
+    --no-install-menus \
+    --no-install-bin-symlink \
+    --no-install-hfs-symlink \
+    --no-install-license \
+    --no-install-hqueue-server \
+    --no-root-check \
+    --make-dir /opt/houdini
+
+# Set up Houdini environment
+ENV HFS=/opt/houdini
+ENV H=/opt/houdini
+ENV HB=/opt/houdini/bin
+ENV HDSO=/opt/houdini/dsolib
+ENV HD=/opt/houdini/demo
+ENV HH=/opt/houdini/houdini
+ENV HHC=/opt/houdini/config
+ENV HT=/opt/houdini/toolkit
+ENV HSB=/opt/houdini/sbin
+ENV TEMP=/tmp
+ENV PATH=$HB:$HSB:$PATH
+ENV LD_LIBRARY_PATH=/opt/houdini/dsolib:/opt/vray/appsdk/bin
+ENV HOUDINI_MAJOR_RELEASE=20
+ENV HOUDINI_MINOR_RELEASE=5
+ENV HOUDINI_BUILD_VERSION=487
+ENV HOUDINI_VERSION=$HOUDINI_MAJOR_RELEASE.$HOUDINI_MINOR_RELEASE.$HOUDINI_BUILD_VERSION
+
+# Create a launcher script for Houdini
+RUN echo '#!/bin/bash\n\
+# Note: Stack size warning can be ignored or set at container runtime with --ulimit\n\
+\n\
+# Setup Houdini environment\n\
+cd /opt/houdini && source ./houdini_setup_bash\n\
+\n\
+# Set Qt platform to offscreen for headless rendering\n\
+export QT_QPA_PLATFORM=offscreen\n\
+\n\
+# Launch Houdini with provided arguments\n\
+/opt/houdini/bin/hrender "$@"' > /usr/local/bin/houdini && \
+    chmod +x /usr/local/bin/houdini
+
+
+
+#######################################
+# VRay for Houdini Installation Section
+#######################################
+
+# Install VRay for Houdini
+RUN mkdir -p /opt/vray && \
+    cp -r /install/houdini_vray/vray_adv_70010_houdini20.5_gcc11/* /opt/vray/ || true && \
+    rm -f /opt/vray/packages/vray_for_houdini.json && \
+    rm -f /opt/vray/packages/vray_for_houdini.env && \
+    rm -f /install/houdini_vray/vray_adv_70010_houdini20.5_gcc11/packages/vray_for_houdini.json && \
+    rm -f /install/houdini_vray/vray_adv_70010_houdini20.5_gcc11/packages/vray_for_houdini.env
+
+# Create a launcher script for VRay that sources the Houdini environment first
+RUN printf '#!/bin/bash\n\
+# Note: Stack size warning can be ignored or set at container runtime with --ulimit\n\
+\n\
+# Setup Houdini environment first\n\
+cd /opt/houdini && source ./houdini_setup_bash\n\
+\n\
+# Setup library path for Houdini DSO libraries\n\
+export LD_LIBRARY_PATH="/opt/houdini/dsolib:$LD_LIBRARY_PATH"\n\
+\n\
+# Setup VRay environment\n\
+export VRAY_PATH=/opt/vray\n\
+export VRAY_APPSDK=$VRAY_PATH/appsdk\n\
+export VFH_HOME=$VRAY_PATH/vfh_home\n\
+export VRAY_OSL_PATH=$VRAY_APPSDK/bin\n\
+export VRAY_UI_DS_PATH=$VRAY_PATH/ui\n\
+export PYTHONPATH=$VRAY_APPSDK/python:/opt/houdini/houdini/soho/python3.11:/opt/houdini/python/lib/python3.11/site-packages:/opt/houdini/python/lib/python3.11/site-packages-forced:$PYTHONPATH\n\
+export PATH=$VRAY_APPSDK/bin:$VFH_HOME/bin:$PATH\n\
+export HOUDINI_PATH=$VFH_HOME:$HOUDINI_PATH\n\
+export HOUDINI13_VOLUME_COMPATIBILITY=1\n\
+export HDF5_DISABLE_VERSION_CHECK=1\n\
+\n\
+# Launch VRay with provided arguments\n\
+/opt/vray/appsdk/bin/vray.bin "$@"\n' > /usr/local/bin/vray && \
+    chmod +x /usr/local/bin/vray
+
+
+
+# Create a script to integrate VRay with Houdini
+RUN printf '#!/bin/bash\n\
+# Note: Stack size warning can be ignored or set at container runtime with --ulimit\n\
+\n\
+# Setup Houdini environment\n\
+cd /opt/houdini && source ./houdini_setup_bash\n\
+\n\
+# Setup library path for Houdini DSO libraries\n\
+export LD_LIBRARY_PATH="/opt/houdini/dsolib:$LD_LIBRARY_PATH"\n\
+\n\
+# Setup VRay for Houdini integration\n\
+export VRAY_PATH=/opt/vray\n\
+export VRAY_APPSDK=$VRAY_PATH/appsdk\n\
+export VFH_HOME=$VRAY_PATH/vfh_home\n\
+export VRAY_OSL_PATH=$VRAY_APPSDK/bin\n\
+export VRAY_UI_DS_PATH=$VRAY_PATH/ui\n\
+export PYTHONPATH=$VRAY_APPSDK/python:/opt/houdini/houdini/soho/python3.11:/opt/houdini/python/lib/python3.11/site-packages:/opt/houdini/python/lib/python3.11/site-packages-forced:$PYTHONPATH\n\
+export PATH=$VRAY_APPSDK/bin:$VFH_HOME/bin:$PATH\n\
+export HOUDINI_PATH=$VFH_HOME:$HOUDINI_PATH\n\
+export HOUDINI13_VOLUME_COMPATIBILITY=1\n\
+export HDF5_DISABLE_VERSION_CHECK=1\n\
+\n\
+# Set Qt platform to offscreen for headless rendering\n\
+export QT_QPA_PLATFORM=offscreen\n\
+\n\
+# Launch Houdini with VRay integration\n\
+/opt/houdini/bin/hrender "$@"\n' > /usr/local/bin/houdini-vray && \
+    chmod +x /usr/local/bin/houdini-vray
+
+
+
+# Create Houdini package configuration for V-Ray with version-specific DSO paths
+RUN echo '{\
+    "load_package_once": true,\
+    "env": [\
+        {\
+            "INSTALL_ROOT": "/opt/vray"\
+        },\
+        {\
+            "VFH_HOME": "${INSTALL_ROOT}/vfh_home"\
+        },\
+        {\
+            "VRAY_APPSDK": "${INSTALL_ROOT}/appsdk"\
+        },\
+        {\
+            "VRAY_SDK": "${VRAY_APPSDK}"\
+        },\
+        {\
+            "VRAY_OSL_PATH": "${VRAY_APPSDK}/bin"\
+        },\
+        {\
+            "VRAY_UI_DS_PATH": "${INSTALL_ROOT}/ui"\
+        },\
+        {\
+            "VRAY_FOR_HOUDINI_APPSDK_BIN": "${VRAY_APPSDK}/bin"\
+        },\
+        {\
+            "PATH": [\
+                "${HFS}/bin",\
+                "${VRAY_FOR_HOUDINI_APPSDK_BIN}",\
+                "${VFH_HOME}/bin"\
+            ]\
+        },\
+        {\
+            "VFH_DSO_PATH": [\
+                {\
+                    "houdini_version == '\''20.5.278'\'' and houdini_python == '\''python3.10'\''": "${VFH_HOME}/dso_py310/20.5.278"\
+                },\
+                {\
+                    "houdini_version == '\''20.5.278'\'' and houdini_python == '\''python3.11'\''": "${VFH_HOME}/dso_py311/20.5.278"\
+                },\
+                {\
+                    "houdini_version == '\''20.5.332'\'' and houdini_python == '\''python3.10'\''": "${VFH_HOME}/dso_py310/20.5.332"\
+                },\
+                {\
+                    "houdini_version == '\''20.5.332'\'' and houdini_python == '\''python3.11'\''": "${VFH_HOME}/dso_py311/20.5.332"\
+                },\
+                {\
+                    "houdini_version == '\''20.5.370'\'' and houdini_python == '\''python3.10'\''": "${VFH_HOME}/dso_py310/20.5.370"\
+                },\
+                {\
+                    "houdini_version == '\''20.5.370'\'' and houdini_python == '\''python3.11'\''": "${VFH_HOME}/dso_py311/20.5.370"\
+                },\
+                {\
+                    "houdini_version == '\''20.5.410'\'' and houdini_python == '\''python3.10'\''": "${VFH_HOME}/dso_py310/20.5.410"\
+                },\
+                {\
+                    "houdini_version == '\''20.5.410'\'' and houdini_python == '\''python3.11'\''": "${VFH_HOME}/dso_py311/20.5.410"\
+                },\
+                {\
+                    "houdini_version == '\''20.5.445'\'' and houdini_python == '\''python3.10'\''": "${VFH_HOME}/dso_py310/20.5.445"\
+                },\
+                {\
+                    "houdini_version == '\''20.5.445'\'' and houdini_python == '\''python3.11'\''": "${VFH_HOME}/dso_py311/20.5.445"\
+                },\
+                {\
+                    "houdini_version == '\''20.5.487'\'' and houdini_python == '\''python3.10'\''": "${VFH_HOME}/dso_py310/20.5.487"\
+                },\
+                {\
+                    "houdini_version == '\''20.5.487'\'' and houdini_python == '\''python3.11'\''": "${VFH_HOME}/dso_py311/20.5.487"\
+                }\
+            ]\
+        },\
+        {\
+            "PYTHONPATH": [\
+                {\
+                    "method": "append",\
+                    "value": "${VRAY_APPSDK}/python"\
+                },\
+                {\
+                    "method": "append",\
+                    "value": "${VFH_DSO_PATH}/python"\
+                }\
+            ]\
+        },\
+        {\
+            "HOUDINI_DSO_PATH": "${VFH_DSO_PATH}"\
+        }\
+    ],\
+    "path": [\
+        "${VFH_HOME}"\
+    ]\
+}' > /opt/houdini/packages/vray_for_houdini.json
+
+# Create a launcher script for Houdini with VRay only
+RUN printf '#!/bin/bash\n\
+# Note: Stack size warning can be ignored or set at container runtime with --ulimit\n\
+\n\
+# Setup Houdini environment\n\
+cd /opt/houdini && source ./houdini_setup_bash\n\
+\n\
+# Setup library path for Houdini DSO libraries\n\
+export LD_LIBRARY_PATH="/opt/houdini/dsolib:$LD_LIBRARY_PATH"\n\
+\n\
+# Setup VRay for Houdini integration\n\
+export VRAY_PATH=/opt/vray\n\
+export VRAY_APPSDK=$VRAY_PATH/appsdk\n\
+export VFH_HOME=$VRAY_PATH/vfh_home\n\
+export VRAY_OSL_PATH=$VRAY_APPSDK/bin\n\
+export VRAY_UI_DS_PATH=$VRAY_PATH/ui\n\
+export PYTHONPATH=$VRAY_APPSDK/python:/opt/houdini/houdini/soho/python3.11:/opt/houdini/python/lib/python3.11/site-packages:/opt/houdini/python/lib/python3.11/site-packages-forced:$PYTHONPATH\n\
+export PATH=$VRAY_APPSDK/bin:$VFH_HOME/bin:$PATH\n\
+export HOUDINI13_VOLUME_COMPATIBILITY=1\n\
+export HDF5_DISABLE_VERSION_CHECK=1\n\
+\n\
+# Setup VRay plugin path\n\
+export HOUDINI_PATH="$VFH_HOME:$HOUDINI_PATH"\n\
+\n\
+# Set Qt platform to offscreen for headless rendering\n\
+export QT_QPA_PLATFORM=offscreen\n\
+\n\
+# Launch Houdini with VRay integration\n\
+/opt/houdini/bin/hrender "$@"\n' > /usr/local/bin/houdini-vray-only && \
+    chmod +x /usr/local/bin/houdini-vray-only
+
+# Create render directory for asset files
+RUN mkdir -p /render
+
+# Cleanup installation files to reduce image size
+RUN rm -rf /install/houdini-20.5.487-linux_x86_64_gcc11.2.tar.gz \
+    /install/vray_adv_70010_houdini20.5_gcc11_linux.zip
+
+# Set default command to show available rendering tools
+CMD echo "Available rendering commands:" && \
+    echo "- houdini: Run Houdini renderer" && \
+    echo "- vray: Run VRay standalone renderer" && \
+    echo "- houdini-vray: Run Houdini with VRay integration" && \
+    echo "- houdini-vray-only: Run Houdini with VRay integration only" && \
+    echo "Use verify-installations.sh to verify installations"

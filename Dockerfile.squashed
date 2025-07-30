@@ -1,0 +1,39 @@
+FROM houdini-vray-redshift:2025.5.0 as source
+
+FROM rockylinux:9
+
+# Copy everything from the source image in one layer
+COPY --from=source / /
+
+# Set the same environment variables
+ENV LANG=en_US.UTF-8
+ENV LC_ALL=en_US.UTF-8
+ENV LC_NUMERIC=en_US.UTF-8
+ENV HFS=/opt/houdini
+ENV H=/opt/houdini
+ENV HB=/opt/houdini/bin
+ENV HDSO=/opt/houdini/dsolib
+ENV HD=/opt/houdini/demo
+ENV HH=/opt/houdini/houdini
+ENV HHC=/opt/houdini/config
+ENV HT=/opt/houdini/toolkit
+ENV HSB=/opt/houdini/sbin
+ENV TEMP=/tmp
+ENV PATH=$HB:$HSB:$PATH
+ENV HOUDINI_MAJOR_RELEASE=20
+ENV HOUDINI_MINOR_RELEASE=5
+ENV HOUDINI_BUILD_VERSION=613
+ENV HOUDINI_VERSION=$HOUDINI_MAJOR_RELEASE.$HOUDINI_MINOR_RELEASE.$HOUDINI_BUILD_VERSION
+
+# Add metadata
+LABEL maintainer="SuperDave"
+LABEL description="Houdini with VRay and Redshift Docker container (squashed) based on Rocky Linux 9"
+
+# Set default command to show available rendering tools
+CMD echo "Available rendering commands:" && \
+    echo "- houdini: Run Houdini renderer" && \
+    echo "- vray: Run VRay standalone renderer" && \
+    echo "- houdini-vray: Run Houdini with VRay integration" && \
+    echo "- houdini-redshift: Run Houdini with Redshift integration" && \
+    echo "- houdini-vray-redshift: Run Houdini with both VRay and Redshift integration" && \
+    echo "Use verify-installations.sh to verify installations"
