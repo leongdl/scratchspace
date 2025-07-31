@@ -1,0 +1,149 @@
+specificationVersion: 'jobtemplate-2023-09'
+name: Testing GPU Container
+parameterDefinitions:
+- name: Message
+  type: STRING
+  default: Welcome to AWS Deadline Cloud!
+steps:
+- name: WelcomeToAWSDeadlineCloud
+  script:
+    actions:
+      onRun:
+        command: bash
+        args: ['{{Task.File.Run}}']
+    embeddedFiles:
+    - name: Run
+      type: TEXT
+      data: |
+        #!/bin/bash
+        echo '{{Param.Message}}'
+
+        whoami
+        nvidia-smi
+
+        # Install X as a sudo test
+        #sudo dnf install xorg-x11-server-Xvfb -y
+        echo "Setting up docker with nvidia toolkit"
+        curl -s -L https://nvidia.github.io/libnvidia-container/stable/rpm/nvidia-container-toolkit.repo | sudo tee /etc/yum.repos.d/nvidia-container-toolkit.repo
+        #sudo dnf install -y nvidia-container-toolkit
+        sudo nvidia-ctk runtime configure --runtime=docker
+        sudo nvidia-ctk config --set nvidia-container-cli.no-cgroups=true --in-place
+        sudo nvidia-ctk system create-dev-char-symlinks --create-all
+        sudo systemctl restart docker
+        sudo systemctl daemon-reload
+        nvidia-smi
+        sudo cat /etc/docker/daemon.json 
+        echo "Finished setting up docker with nvidia toolkit"
+        # sudo ls /dev/
+        # cat /etc/nvidia-container-runtime/config.toml
+
+        # Pull the container from ECR:
+        echo What containers do I have.
+        aws ecr get-login-password --region us-west-2 | docker login --username AWS --password-stdin 261469239760.dkr.ecr.us-west-2.amazonaws.com
+        # docker pull 261469239760.dkr.ecr.us-west-2.amazonaws.com/hackathon2025:gold
+        docker pull 261469239760.dkr.ecr.us-west-2.amazonaws.com/hackathon2025:baseline
+        docker images
+        docker ps
+
+        # Run the container and capture its ID
+        echo Starting the container
+        CONTAINER_ID=$(sudo docker run --runtime=nvidia --device=/dev/nvidiactl --device=/dev/nvidia0 -itd --gpus all 261469239760.dkr.ecr.us-west-2.amazonaws.com/hackathon2025:baseline)
+
+        # Print the container ID (optional, for verification)
+        echo "Container ID: $CONTAINER_ID"
+
+        # Use the captured container ID to execute the command
+        sudo docker exec $CONTAINER_ID nvidia-smi
+        docker exec $CONTAINER_ID cat /etc/os-release
+        
+        echo **** Lets Hack ***
+        cat {{Task.File.Hack}}
+        # sudo docker exec $CONTAINER_ID python3 hack.py
+
+        echo Stopping containers
+        docker stop $(docker ps -a -q)
+        docker ps
+    - name: Hack
+      type: TEXT
+      data: |
+        from PIL import Image
+        import torch
+        import time
+        import sys
+
+        from hy3dgen.rembg import BackgroundRemover
+        from hy3dgen.shapegen import Hunyuan3DDiTFlowMatchingPipeline, FaceReducer
+        from hy3dgen.texgen import Hunyuan3DPaintPipeline
+        from hy3dgen.shapegen.utils import logger
+        from hy3dgen.shapegen.pipelines import export_to_trimesh
+
+        # Process command line arguments
+        # First argument: input image path (default: assets/demo.png)
+        # Second argument: output file path (default: hack.glb)
+        input_path = "assets/demo.png"
+        output_path = 'hack.glb'
+
+        if len(sys.argv) > 1:
+            input_path = sys.argv[1]
+            
+        if len(sys.argv) > 2:
+            output_path = sys.argv[2]
+
+        print(f"Input image: {input_path}")
+        print(f"Output file: {output_path}")
+
+        # Initialize workers
+        mini_model_path = 'tencent/Hunyuan3D-2mini'
+        model_path = 'tencent/Hunyuan3D-2'
+        # tencent/Hunyuan3D-2mini hunyuan3d-dit-v2-mini-turbo
+        pipeline_shapegen = Hunyuan3DDiTFlowMatchingPipeline.from_pretrained(mini_model_path, subfolder='hunyuan3d-dit-v2-mini-turbo', use_safetensors=True, device='cuda')
+        pipeline_texgen = Hunyuan3DPaintPipeline.from_pretrained(model_path)
+        face_reduce_worker = FaceReducer()
+        rembg_worker = BackgroundRemover()
+
+        # Load and process image
+        image_path = input_path
+        image = Image.open(image_path).convert("RGBA")
+        #if image.mode == 'RGB':
+        image = rembg_worker(image.convert('RGB'))
+
+        # Generate shape
+        print("Generating shape...")
+        start_time = time.time()
+        generator = torch.Generator().manual_seed(3713462)
+        # Generation 5 5 1234 256 True 8000
+        # {steps} {guidance_scale} {seed} {octree_resolution} {check_box_rembg} {num_chunks} 
+        outputs = pipeline_shapegen(
+            image=image,
+            num_inference_steps=5,
+            guidance_scale=5,
+            generator=generator,
+            octree_resolution=256,
+            num_chunks=8000,
+            output_type='mesh'
+        )
+        logger.info("---Shape generation took %s seconds ---" % (time.time() - start_time))
+
+        # Convert output to trimesh
+        mesh = export_to_trimesh(outputs)[0]
+
+        # Apply face reduction
+        print("Applying face reduction...")
+        tmp_time = time.time()
+        mesh = face_reduce_worker(mesh)
+        logger.info("---Face Reduction took %s seconds ---" % (time.time() - tmp_time))
+
+        # Generate texture
+        print("Generating texture...")
+        tmp_time = time.time()
+        textured_mesh = pipeline_texgen(mesh, image)
+        logger.info("---Texture Generation took %s seconds ---" % (time.time() - tmp_time))
+
+        # Export the textured mesh
+        print("Exporting textured mesh...")
+        textured_mesh.export(output_path, include_normals=True)
+        print(f"Done! Exported to {output_path}")
+
+        # Also export the original mesh for comparison
+        #mesh.export('hackathon_white.glb')
+        #print("Also exported white mesh to hackathon_white.glb")

@@ -1,0 +1,83 @@
+===============================================================================
+=                    Redshift command line installation instructions                       =
+===============================================================================
+
+Makeself version 2.4.2
+ 1) Getting help or info about ./redshift_2025.5.0_1853528846_linux_x64.run :
+  ./redshift_2025.5.0_1853528846_linux_x64.run --help   Print this message
+  ./redshift_2025.5.0_1853528846_linux_x64.run --info   Print embedded info : title, default target directory, embedded script ...
+  ./redshift_2025.5.0_1853528846_linux_x64.run --lsm    Print embedded lsm entry (or no LSM)
+  ./redshift_2025.5.0_1853528846_linux_x64.run --list   Print the list of files in the archive
+  ./redshift_2025.5.0_1853528846_linux_x64.run --check  Checks integrity of the archive
+
+ 2) Running ./redshift_2025.5.0_1853528846_linux_x64.run :
+  ./redshift_2025.5.0_1853528846_linux_x64.run [options] [--] [additional arguments to embedded script]
+  with following options (in that order)
+  --confirm             Ask before running embedded script
+  --quiet               Do not print anything except error messages
+  --accept              Accept the license
+  --noexec              Do not run embedded script (implies --noexec-cleanup)
+  --noexec-cleanup      Do not run embedded cleanup script
+  --keep                Do not erase target directory after running
+                        the embedded script
+  --noprogress          Do not show the progress during the decompression
+  --nox11               Do not spawn an xterm
+  --nochown             Do not give the target folder to the current user
+  --chown               Give the target folder to the current user recursively
+  --nodiskspace         Do not check for available disk space
+  --target dir          Extract directly to a target directory (absolute or relative)
+                        This directory may undergo recursive chown (see --nochown).
+  --tar arg1 [arg2 ...] Access the contents of the archive through the tar command
+  --ssl-pass-src src    Use the given src as the source of password to decrypt the data
+                        using OpenSSL. See "PASS PHRASE ARGUMENTS" in man openssl.
+                        Default is to prompt the user to enter decryption password
+                        on the current terminal.
+  --cleanup-args args   Arguments to the cleanup script. Wrap in quotes to provide
+                        multiple arguments.
+  --                    Following arguments will be passed to the embedded script
+
+
+===============================================================================
+=                    Redshift post installation instructions                       =
+===============================================================================
+
+Please follow these steps to complete you installation of Redshift.
+
+1) Install redshift4maya.mod module file
+
+Before using Redshift, Maya must be configured to know where to find the redshift4maya plugin by creating a redshift4maya.mod file in the module search path of the version(s) of Maya you are running.  By default, all versions of Maya will include ~/maya/modules in the module search path.
+
+We have provided a template redshift4maya.mod file for reference.  Simply copy redshift4maya.mod.template to ~/maya/modules/redshift4maya.mod (create the 'modules' directory if it doesn't exist).  If you have installed Redshift to an alternate location, the template will have already been customized with your alternate install location.
+
+
+[Optional] By default, Redshift "local data" path is set to ~/redshift.  Unless further customized, this path will be used to store Redshift's logs, license file and local cache.
+You can change the location of the Redshift local data path by setting the environment variable "REDSHIFT_LOCALDATAPATH", either in your user profile or in your redshift4maya.mod file (or the Maya.env corresponding with your version of Maya if you opted to not use the module system)
+
+
+
+
+2) Copy redshiftRenderer.xml to Maya's rendererDesc directory (required for Maya command-line rendering)
+
+Copy the file "/usr/redshift/redshift4maya/common/rendererDesc/redshiftRenderer.xml" to /usr/autodesk/<MAYAVERSION>/bin/rendererDesc/
+
+
+
+
+
+
+[Note] An alternative to using the module system is to modify the Maya.env file(s) for the particular version(s) of Maya you are running.  
+
+By default this file is located in ~/maya/<MAYAVERSION>/Maya.env, where <MAYAVERSION> is 2018, 2019, 2020, 2022, 2023, 2024 or 2025 depending on your version of Maya.
+
+We have provided a template Maya.env file for reference.  Note that "<MAYAVERSION>" on the second line should be replaced with the version of Maya you are installing for (e.g. "2018", "2019", "2020", "2022", "2023", "2024" or "2025").  If you have installed Redshift to a location other than /usr/redshift (the default), the template file will already contain this alternate install location, so no further customization is necessary (other than replacing "<MAYAVERSION>").
+
+If your existing Maya.env already contains lines that conflict with those in the template, you will need to "merge" them.
+For example, if your Maya.env already has a line:
+
+MAYA_PLUG_IN_PATH = /path/to/my/plugins
+
+this would be merged with the value of MAYA_PLUG_IN_PATH in the Redshift Maya.env.template as follows:
+
+MAYA_PLUG_IN_PATH = %REDSHIFT_PLUG_IN_PATH%:/path/to/my/plugins
+
+Note that the paths are separated by a colon ":".

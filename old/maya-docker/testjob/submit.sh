@@ -1,0 +1,1 @@
+deadline bundle submit . --farm-id farm-fd8e9a84d9c04142848c6ea56c9d7568 --queue-id queue-2eb8ef58ce5d48d1bbaf3e2f65ea2c38 --profile dev

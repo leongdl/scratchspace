@@ -1,0 +1,457 @@
+specificationVersion: 'jobtemplate-2023-09'
+name: Testing Container with Maya-Arnold-Ornatrix-Redshift
+parameterDefinitions:
+- name: Message
+  type: STRING
+  default: Welcome to AWS Deadline Cloud!
+- name: ECR_REGISTRY
+  type: STRING
+  default: 224071664257.dkr.ecr.us-west-2.amazonaws.com
+- name: ECR_REPOSITORY
+  type: STRING
+  default: sqex
+- name: ECR_TAG
+  type: STRING
+  default: latest
+- name: AWS_REGION
+  type: STRING
+  default: us-west-2
+steps:
+- name: RenderWithArnold
+  script:
+    actions:
+      onRun:
+        command: bash
+        args: ['{{Task.File.Run}}']
+    embeddedFiles:
+    - name: Run
+      type: TEXT
+      data: |
+        #!/bin/bash
+        set -e  # Exit on error
+        
+        echo '{{Param.Message}}'
+        echo "Current user: $(whoami)"
+        echo "Current directory: $(pwd)"
+
+        # Login to ECR
+        # echo "Logging in to ECR..."
+        # aws ecr get-login-password --region {{Param.AWS_REGION}} | sudo docker login --username AWS --password-stdin {{Param.ECR_REGISTRY}}
+        
+        # Pull the container
+        # echo "Pulling container {{Param.ECR_REGISTRY}}/{{Param.ECR_REPOSITORY}}:{{Param.ECR_TAG}}..."
+        # sudo docker pull {{Param.ECR_REGISTRY}}/{{Param.ECR_REPOSITORY}}:{{Param.ECR_TAG}}
+        
+        # Create a directory for the example.ass file and output in the current working directory
+        mkdir -p ./arnold_render
+        
+        # Create a simple Arnold scene file
+        cat > ./arnold_render/example.ass << 'EOL'
+        options
+        {
+         AA_samples 8
+         xres 640
+         yres 480
+         GI_diffuse_depth 4
+         GI_specular_depth 4
+         outputs "RGBA RGBA filter testrender"
+        }
+        
+        gaussian_filter
+        {
+          name filter
+        }
+        
+        driver_jpeg
+        {
+          name testrender
+          filename cornell.jpg
+        }
+        
+        persp_camera
+        {
+          name persp
+          position 0 0 8
+          look_at 0 0 0
+          up 0 1 0
+          fov 45
+        }
+        
+        standard_surface
+        {  
+          name left_srf
+          base_color 0 0 1
+          specular 0
+        }
+        
+        standard_surface 
+        {
+          name right_srf
+          base_color 1 0 0
+          specular 0
+        }
+        
+        standard_surface 
+        {
+          name bottom_srf
+          base_color 1 1 1
+          specular 0
+        }
+        
+        standard_surface 
+        {
+          name top_srf
+          base_color 1 1 1
+          specular 0
+        }
+        
+        standard_surface 
+        {
+          name back_srf
+          base_color 1 1 1
+          specular 0
+        }
+        
+        standard_surface
+        {
+          name pimp
+          metalness 1
+        }
+        
+        polymesh
+        {
+          name left
+          nsides 1 1 BYTE 4
+          vidxs 4 1 LONG 0 1 2 3
+          nidxs 4 1 LONG 0 0 0 0
+          vlist 12 1 FLOAT -2.0 -2.0 8.0   -2.0 2.0 8.0   -2.0 2.0 -2.0  -2.0 -2.0 -2.0
+          nlist 3 1 FLOAT 1.0 0 0 
+          shader left_srf
+        }
+        
+        polymesh
+        {
+          name right
+          nsides 1 1 BYTE 4
+          vidxs 4 1 LONG 0 1 2 3
+          nidxs 4 1 LONG 0 0 0 0
+          vlist 12 1 FLOAT 2.0 -2.0 8.0   2.0 2.0 8.0   2.0 2.0 -2.0  2.0 -2.0 -2.0
+          nlist 3 1 FLOAT -1.0 0 0 
+          shader right_srf
+        }
+        
+        polymesh
+        {
+          name top
+          nsides 1 1 BYTE 4
+          vidxs 4 1 LONG 0 1 2 3
+          nidxs 4 1 LONG 0 0 0 0
+          vlist 12 1 FLOAT -2.0 2.0 8.0   2.0 2.0 8.0   2.0 2.0 -2.0  -2.0 2.0 -2.0
+          nlist 3 1 FLOAT 0.0 -1 0 
+          shader top_srf
+        }
+        
+        polymesh
+        {
+          name bottom
+          nsides 1 1 BYTE 4
+          vidxs 4 1 LONG 0 1 2 3
+          nidxs 4 1 LONG 0 0 0 0
+          vlist 12 1 FLOAT -2.0 -2.0 8.0   2.0 -2.0 8.0   2.0 -2.0 -2.0  -2.0 -2.0 -2.0
+          nlist 3 1 FLOAT 0.0 1 0 
+          shader bottom_srf
+        }
+        
+        polymesh
+        {
+          name back
+          nsides 1 1 BYTE 4
+          vidxs 4 1 LONG 0 1 2 3
+          nidxs 4 1 LONG 0 0 0 0
+          vlist 12 1 FLOAT -2.0 -2.0 -2.0   2.0 -2.0 -2.0   2.0 2.0 -2.0  -2.0 2.0 -2.0
+          nlist 3 1 FLOAT 0.0 0 1 
+          shader back_srf
+        }
+        
+        sphere
+        {
+         shader pimp
+         radius 1
+         center 0 -1 0
+        }
+        
+        quad_light
+        {
+          name arealight
+          vertices 4 1 POINT -1.0 1.9 1.0   -1.0 1.9 0.0  1.0 1.9 0.0   1.0 1.9 1.0
+          color 0.9 0.9 1.0
+          intensity 1
+          exposure 6
+          samples 3
+          normalize on
+        }
+        EOL
+        
+        # Pass through license environment variables from host
+        echo "Passing through license environment variables from host..."
+        
+        # Print out the shell environment variables
+        echo "Printing host environment variables..."
+        env | sort
+        
+        # Print out environment variables inside the container
+        echo "Printing container environment variables..."
+        docker run --rm \
+          -v "$(pwd)/arnold_render:/work" \
+          -w /work \
+          -e FLEXLM_TIMEOUT \
+          -e ADSKFLEX_LICENSE_FILE \
+          -e redshift_LICENSE \
+          -e VRAY_AUTH_CLIENT_FILE_PATH \
+          -e VRAY_AUTH_CLIENT_SETTINGS \
+          {{Param.ECR_REGISTRY}}/{{Param.ECR_REPOSITORY}}:{{Param.ECR_TAG}} \
+          env | sort
+
+        # Run the kick command in the Docker container with license environment variables
+        echo "Running Arnold kick command to render the scene..."
+        docker run --rm \
+          --network host \
+          -v "$(pwd)/arnold_render:/work" \
+          -w /work \
+          -e FLEXLM_TIMEOUT \
+          -e ADSKFLEX_LICENSE_FILE \
+          -e redshift_LICENSE \
+          -e VRAY_AUTH_CLIENT_FILE_PATH \
+          -e VRAY_AUTH_CLIENT_SETTINGS \
+          {{Param.ECR_REGISTRY}}/{{Param.ECR_REPOSITORY}}:{{Param.ECR_TAG}} \
+          /usr/autodesk/arnold/maya2025/bin/kick -i example.ass -o /work/output.png -v 2 -set abort_on_license_fail true
+        
+        echo "Checking container output folder...."
+        docker run --rm \
+          -v "$(pwd)/arnold_render:/work" \
+          -w /work \
+          {{Param.ECR_REGISTRY}}/{{Param.ECR_REPOSITORY}}:{{Param.ECR_TAG}} \
+          ls -la /work/
+
+        echo "Checking output folder...."
+        ls -la $(pwd)/arnold_render
+        ls -la $(pwd)/arnold_render/
+
+        # Check if the output file was created
+        if [ -f "$(pwd)/arnold_render/output.jpg" ]; then
+          echo "Rendering complete. Output saved as ./arnold_render/output.jpg"
+          # Copy the output to a location that will be saved with the job results
+          cp ./arnold_render/output.jpg ./
+          echo "Output copied to job results directory"
+        else
+          echo "Error: Rendering failed. No output file was created."
+          exit 1
+        fi
+        
+        # Cleanup Docker containers and images
+        echo "Cleaning up Docker resources..."
+        # Remove all stopped containers
+        docker container prune -f
+        # Remove dangling images (images with no tags)
+        docker image prune -f
+        
+        echo "Docker cleanup complete."
+
+- name: RenderWithRedshift
+  script:
+    actions:
+      onRun:
+        command: bash
+        args: ['{{Task.File.Run}}']
+    embeddedFiles:
+    - name: Run
+      type: TEXT
+      data: |
+        #!/bin/bash
+        set -e  # Exit on error
+        
+        echo '{{Param.Message}}'
+        echo "Current user: $(whoami)"
+        echo "Current directory: $(pwd)"
+        
+        # Create a directory for the Redshift render
+        mkdir -p ./redshift_render
+        
+        # Create a simple Maya script to set up Redshift rendering
+        cat > ./redshift_render/redshift_render.mel << 'EOL'
+        // Load the Redshift plugin
+        loadPlugin "redshift4maya";
+        
+        // Create a simple scene
+        polySphere -r 1 -sx 20 -sy 20 -ax 0 1 0 -cuv 2 -ch 1;
+        move -r 0 0 0;
+        
+        // Create a camera
+        camera -centerOfInterest 5 -focalLength 35 -lensSqueezeRatio 1 -cameraScale 1 -horizontalFilmAperture 1.417 -horizontalFilmOffset 0 -verticalFilmAperture 0.945 -verticalFilmOffset 0 -filmFit Fill -overscan 1 -motionBlur 0 -shutterAngle 144 -nearClipPlane 0.1 -farClipPlane 10000 -orthographic 0 -orthographicWidth 30;
+        move -r 0 0 5;
+        
+        // Create a light
+        directionalLight -intensity 1.0;
+        move -r 2 2 2;
+        
+        // Set Redshift as the current renderer
+        setAttr "defaultRenderGlobals.currentRenderer" -type "string" "redshift";
+        
+        // Configure Redshift settings
+        redshiftCreateGlobals();
+        setAttr "redshiftOptions.imageFormat" 2; // PNG format
+        setAttr "redshiftOptions.width" 800;
+        setAttr "redshiftOptions.height" 600;
+        
+        // Save the scene
+        file -force -save -type "mayaAscii" "redshift_scene.ma";
+        EOL
+        
+        # Pass through license environment variables from host
+        echo "Passing through license environment variables from host..."
+        
+        # Print out environment variables inside the container
+        echo "Printing container environment variables..."
+        docker run --rm \
+          -v "$(pwd)/redshift_render:/work" \
+          -w /work \
+          -e FLEXLM_TIMEOUT \
+          -e ADSKFLEX_LICENSE_FILE \
+          -e redshift_LICENSE \
+          -e VRAY_AUTH_CLIENT_FILE_PATH \
+          -e VRAY_AUTH_CLIENT_SETTINGS \
+          {{Param.ECR_REGISTRY}}/{{Param.ECR_REPOSITORY}}:{{Param.ECR_TAG}} \
+          env | sort
+        
+        # Copy the redshift.ma file from the container to our work directory
+        echo "Copying redshift.ma from container to work directory..."
+        docker run --rm \
+          -v "$(pwd)/redshift_render:/work" \
+          -w /work \
+          {{Param.ECR_REGISTRY}}/{{Param.ECR_REPOSITORY}}:{{Param.ECR_TAG}} \
+          cp /tmp/redshift.ma /work/
+        
+        # Run Maya batch command to create and render the scene
+        echo "Running Maya batch command to render with Redshift..."
+        docker run --rm \
+          --network host \
+          -v "$(pwd)/redshift_render:/work" \
+          -w /work \
+          -e FLEXLM_TIMEOUT \
+          -e ADSKFLEX_LICENSE_FILE \
+          -e redshift_LICENSE \
+          -e VRAY_AUTH_CLIENT_FILE_PATH \
+          -e VRAY_AUTH_CLIENT_SETTINGS \
+          {{Param.ECR_REGISTRY}}/{{Param.ECR_REPOSITORY}}:{{Param.ECR_TAG}} \
+          /usr/autodesk/maya/bin/Render -r redshift -rd /work -im redshift_output /work/redshift.ma
+        
+        # Check if the output file was created
+        if [ -f "./redshift_render/redshift_output.png" ]; then
+          echo "Rendering complete. Output saved as ./redshift_render/redshift_output.png"
+          # Copy the output to a location that will be saved with the job results
+          cp ./redshift_render/redshift_output.png ./
+          echo "Output copied to job results directory"
+        else
+          echo "Error: Rendering failed. No output file was created."
+          exit 1
+        fi
+        
+        # Cleanup Docker containers and images
+        echo "Cleaning up Docker resources..."
+        # Remove all stopped containers
+        docker container prune -f
+        # Remove dangling images (images with no tags)
+        docker image prune -f
+        
+        echo "Docker cleanup complete."
+
+- name: RenderWithVRay
+  script:
+    actions:
+      onRun:
+        command: bash
+        args: ['{{Task.File.Run}}']
+    embeddedFiles:
+    - name: Run
+      type: TEXT
+      data: |
+        #!/bin/bash
+        set -e  # Exit on error
+        
+        echo '{{Param.Message}}'
+        echo "Current user: $(whoami)"
+        echo "Current directory: $(pwd)"
+        
+        # Create a directory for the V-Ray render
+        mkdir -p ./vray_render
+        
+        # Pass through license environment variables from host
+        echo "Passing through license environment variables from host..."
+        
+        # Print out environment variables inside the container
+        echo "Printing container environment variables..."
+        docker run --rm \
+          -v "$(pwd)/vray_render:/work" \
+          -w /work \
+          -e FLEXLM_TIMEOUT \
+          -e ADSKFLEX_LICENSE_FILE \
+          -e redshift_LICENSE \
+          -e VRAY_AUTH_CLIENT_FILE_PATH \
+          -e VRAY_AUTH_CLIENT_SETTINGS \
+          {{Param.ECR_REGISTRY}}/{{Param.ECR_REPOSITORY}}:{{Param.ECR_TAG}} \
+          env | sort
+        
+        # Copy the vray.ma file from the container to our work directory
+        echo "Copying vray.ma from container to work directory..."
+        docker run --rm \
+          -v "$(pwd)/vray_render:/work" \
+          -w /work \
+          {{Param.ECR_REGISTRY}}/{{Param.ECR_REPOSITORY}}:{{Param.ECR_TAG}} \
+          cp /tmp/vray.ma /work/
+        
+        # Run Maya batch command to render the scene with V-Ray
+        echo "Running Maya batch command to render with V-Ray..."
+        docker run --rm \
+          --network host \
+          -v "$(pwd)/vray_render:/work" \
+          -w /work \
+          -e FLEXLM_TIMEOUT \
+          -e ADSKFLEX_LICENSE_FILE \
+          -e redshift_LICENSE \
+          -e VRAY_AUTH_CLIENT_FILE_PATH \
+          -e VRAY_AUTH_CLIENT_SETTINGS \
+          {{Param.ECR_REGISTRY}}/{{Param.ECR_REPOSITORY}}:{{Param.ECR_TAG}} \
+          /usr/autodesk/maya/bin/Render -r vray -rd /work -im /work/vray_output /work/vray.ma
+        
+        echo "Checking container output folder...."
+        docker run --rm \
+          -v "$(pwd)/vray_render:/work" \
+          -w /work \
+          {{Param.ECR_REGISTRY}}/{{Param.ECR_REPOSITORY}}:{{Param.ECR_TAG}} \
+          ls -la /work/
+
+        echo "Checking output folder...."
+        ls -la $(pwd)/vray_render
+        ls -la $(pwd)/vray_render/
+
+        # Check if the output file was created
+        if [ -f "$(pwd)/vray_render/vray_output.png" ]; then
+          echo "Rendering complete. Output saved as ./vray_render/vray_output.png"
+          # Copy the output to a location that will be saved with the job results
+          cp ./vray_render/vray_output.png ./
+          echo "Output copied to job results directory"
+        else
+          echo "Error: Rendering failed. No output file was created."
+          exit 1
+        fi
+        
+        # Cleanup Docker containers and images
+        echo "Cleaning up Docker resources..."
+        # Remove all stopped containers
+        docker container prune -f
+        # Remove dangling images (images with no tags)
+        docker image prune -f
+        
+        echo "Docker cleanup complete."
+
+        

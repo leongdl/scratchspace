@@ -1,0 +1,24 @@
+<DefValues>
+ <Value Name="REGISTER_RENDERSERVER_SERVICE" DataType="value">0</Value>
+ <Value Name="STDROOT" DataType="value">/usr/Chaos/V-Ray/Maya2025-x64/vray</Value>
+ <Value Name="CHAOS_CLOUD_INSTALLED" DataType="value">1</Value>
+ <Value Name="SHOULDUNINSTALL" DataType="value">1</Value>
+ <Value Name="REMOTE_LICENSE" DataType="value">1</Value>
+ <Value Name="MODULEDEST" DataType="value">/usr/autodesk/modules/maya/2025</Value>
+ <Value Name="PERSONALIZED_TELEMETRY" DataType="value">0</Value>
+ <Value Name="INSTALL_TYPE" DataType="value">0</Value>
+ <Value Name="PLUGINS" DataType="value">/usr/Chaos/V-Ray/Maya2025-x64/maya_vray</Value>
+ <Value Name="STANDALONE_PATH" DataType="value">/usr/Chaos/V-Ray/Maya2025-x64/maya_vray/bin</Value>
+ <Value Name="ANONYMOUS_TELEMETRY" DataType="value">1</Value>
+ <Value Name="SYSTEMD_SUPPORTED" DataType="value">1</Value>
+ <Value Name="MAYAROOT" DataType="value">/usr/autodesk/maya2025</Value>
+ <LicServer>
+  <Host>license.server.address</Host>
+  <Port>30304</Port>
+  <Host1></Host1>
+  <Port1>0</Port1>
+  <Host2></Host2>
+  <Port2>0</Port2>
+  <User></User>
+ </LicServer>
+</DefValues>

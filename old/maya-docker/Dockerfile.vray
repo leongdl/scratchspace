@@ -1,0 +1,31 @@
+FROM maya-vray:latest
+
+MAINTAINER konstruktion@gmail.com
+
+# Copy V-Ray test scene
+COPY vray.ma /tmp/vray.ma
+
+# Install missing dependencies
+RUN yum install -y epel-release && \
+    yum install -y libxcb xcb-util xcb-util-image xcb-util-keysyms xcb-util-renderutil xcb-util-wm xcb-util-cursor
+
+# Create V-Ray module file
+RUN mkdir -p /usr/autodesk/modules/maya/2025 && \
+    echo "+ MAYAVERSION:2025 vray any /usr/Chaos/V-Ray/Maya2025-x64/maya_vray" > /usr/autodesk/modules/maya/2025/vray.mod && \
+    echo "plug-ins: plug-ins" >> /usr/autodesk/modules/maya/2025/vray.mod && \
+    echo "icons: icons" >> /usr/autodesk/modules/maya/2025/vray.mod && \
+    echo "scripts: scripts" >> /usr/autodesk/modules/maya/2025/vray.mod && \
+    echo "presets: presets" >> /usr/autodesk/modules/maya/2025/vray.mod && \
+    echo "VRAY_FOR_MAYA2025_MAIN_PREBUILD = /usr/Chaos/V-Ray/Maya2025-x64/maya_vray" >> /usr/autodesk/modules/maya/2025/vray.mod && \
+    echo "VRAY_FOR_MAYA2025_PLUGINS = /usr/Chaos/V-Ray/Maya2025-x64/maya_vray/vrayplugins" >> /usr/autodesk/modules/maya/2025/vray.mod && \
+    echo "VRAY_OSL_PATH = /usr/Chaos/V-Ray/Maya2025-x64/vray/opensl" >> /usr/autodesk/modules/maya/2025/vray.mod && \
+    echo "PATH +:= /usr/Chaos/V-Ray/Maya2025-x64/vray/bin" >> /usr/autodesk/modules/maya/2025/vray.mod
+
+# Set V-Ray environment variables
+ENV MAYA_MODULE_PATH=$MAYA_MODULE_PATH:/usr/autodesk/modules/maya/2025
+ENV VRAY_FOR_MAYA2025_PLUGINS=/usr/Chaos/V-Ray/Maya2025-x64/maya_vray/vrayplugins
+ENV VRAY_OSL_PATH=/usr/Chaos/V-Ray/Maya2025-x64/vray/opensl
+ENV PATH=$PATH:/usr/Chaos/V-Ray/Maya2025-x64/vray/bin
+
+# Cleanup
+WORKDIR /root

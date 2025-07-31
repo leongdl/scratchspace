@@ -1,0 +1,10 @@
+echo Hello Hackathon
+sudo adduser job-user sudo
+echo "job-user ALL=(ALL:ALL) NOPASSWD: ALL" | sudo tee /etc/sudoers.d/job-user
+cat /etc/sudoers.d/job-user
+sudo service sudo restart
+dnf install docker -y
+sudo systemctl start docker
+sudo usermod -aG docker job-user
+docker pull rockylinux/rockylinux:9
+exit 0

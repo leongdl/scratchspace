@@ -1,0 +1,43 @@
+echo "Dream to reality: When your 3D masterpiece meets Deadline Cloud's rendering power, impossible deadlines transcend into cinematic magic."
+
+echo "Setting up sudo for job user"
+sudo echo "job-user ALL=(ALL:ALL) NOPASSWD: ALL" | sudo tee /etc/sudoers.d/job-user
+sudo cat /etc/sudoers.d/job-user
+sudo usermod -aG wheel job-user
+echo "done setting up sudo for job user"
+
+# Install Docker
+dnf install docker -y
+sudo usermod -aG docker job-user
+sudo systemctl start docker
+
+# Install/configure Nvidia toolkit for Docker
+curl -s -L https://nvidia.github.io/libnvidia-container/stable/rpm/nvidia-container-toolkit.repo | sudo tee /etc/yum.repos.d/nvidia-container-toolkit.repo
+sudo dnf install -y nvidia-container-toolkit
+sudo nvidia-ctk runtime configure --runtime=docker
+sudo systemctl start docker
+
+# Rootless Docker configuration
+# sudo -u job-user mkdir -p ~job-user/.config/docker
+# sudo -u job-user nvidia-ctk runtime configure --runtime=docker --config=$HOME/.config/docker/daemon.json
+
+# Make sure Docker socket directory exists
+# sudo -u job-user systemctl --user enable docker
+# sudo -u job-user mkdir -p ~job-user/.docker
+
+# Configure no-cgroups for rootless mode
+# sudo -u job-user sudo nvidia-ctk config --set nvidia-container-cli.no-cgroups=true --in-place
+
+# Start rootless Docker
+# sudo -u job-user systemctl --user start docker
+# sudo -u job-user systemctl --user enable docker
+
+# Set environment variables for rootless Docker
+# export DOCKER_HOST=unix://$XDG_RUNTIME_DIR/docker.sock
+
+# Test NVIDIA driver installation
+nvidia-smi
+
+# Pull Docker image from ECR
+# aws ecr get-login-password --region us-west-2 | docker login --username AWS --password-stdin 013611968778.dkr.ecr.us-west-2.amazonaws.com
+# docker pull 013611968778.dkr.ecr.us-west-2.amazonaws.com/hackathon-2025:rocky-blender
