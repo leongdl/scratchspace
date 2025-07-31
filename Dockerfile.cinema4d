@@ -11,6 +11,11 @@ ENV C4D_COMMANDLINE_EXECUTABLE=/opt/cinema4d/bin/Commandline
 RUN dnf install -y epel-release && \
     dnf config-manager --set-enabled crb
 
+# Add AppStream BaseOS and Extra repositories
+RUN dnf config-manager --set-enabled appstream && \
+    dnf config-manager --set-enabled baseos && \
+    dnf config-manager --set-enabled extras
+
 # Install basic dependencies and required libraries for Cinema4D
 RUN dnf update -y && \
     dnf install -y \
@@ -28,29 +33,69 @@ RUN dnf update -y && \
     cairo \
     gdk-pixbuf2 \
     libsoup \
-    libnotify \
-    webkit2gtk3 \
+    enchant2 \
+    libsecret \
+    libatomic \
+    libicu \
+    libxslt \
+    libunwind \
+    avahi-libs \
     python3.11 \
     python3.11-libs \
     python3.11-devel \
-    tbb \
-    tbb-devel \
     && dnf clean all
 
-# Try to install additional libraries from EPEL
+# Install specific RPM packages
+RUN dnf install -y \
+    webkit2gtk3-2.48.3-1.el9_6.x86_64 \
+    libnotify-0.7.9-8.el9.x86_64 \
+    && dnf clean all || true
+
+# Install comprehensive library set for Cinema4D
 RUN dnf install -y \
     openvdb \
     embree3 \
+    woff2 \
+    libcloudproviders \
+    libtracker-sparql \
+    compat-libffi3.1 \
+    harfbuzz-icu \
+    libnotify \
+    gstreamer1 \
+    gstreamer1-plugins-base \
+    libbrotli \
+    libgudev \
+    orc \
+    libsoup \
+    enchant2 \
+    libsecret \
+    libatomic \
+    atk \
+    pango \
+    gdk-pixbuf2 \
+    cairo \
+    cairo-gobject \
+    harfbuzz \
+    fontconfig \
+    fribidi \
+    libepoxy \
+    at-spi2-atk \
+    libwayland-cursor \
+    libwayland-egl \
+    libthai \
+    freetype \
+    pixman \
+    graphite2 \
+    at-spi2-core \
+    json-glib \
+    libdatrie \
+    libicu \
+    libxslt \
+    lcms2 \
+    libunwind \
+    avahi-libs \
+    libhyphen \
     && dnf clean all || true
-
-# Create symbolic links for libraries that Cinema4D expects
-RUN mkdir -p /usr/lib64 && \
-    find /usr/lib64 -name "libpython3.11*.so*" -exec ln -sf {} /usr/lib64/libpython3.11.so.1.0 \; 2>/dev/null || true && \
-    find /usr/lib64 -name "libtbb.so*" -exec ln -sf {} /usr/lib64/libtbb.so.12 \; 2>/dev/null || true && \
-    find /usr/lib64 -name "libtbb.so*" -exec ln -sf {} /usr/lib64/libtbb.so.2 \; 2>/dev/null || true && \
-    find /usr/lib64 -name "libembree*.so*" -exec ln -sf {} /usr/lib64/libembree3.so.3 \; 2>/dev/null || true && \
-    find /usr/lib64 -name "libopenvdb*.so*" -exec ln -sf {} /usr/lib64/libopenvdb.so.9.0 \; 2>/dev/null || true && \
-    find /usr/lib64 -name "libwebkit2gtk*.so*" -exec ln -sf {} /usr/lib64/libwebkit2gtk-4.0.so.37 \; 2>/dev/null || true
 
 # Create cinema4d user
 RUN useradd -m -s /bin/bash cinema4d
@@ -77,8 +122,8 @@ RUN if [ -f /opt/cinema4d/resource/modules/python/libs/linux64/python ]; then \
 # Set ownership
 RUN chown -R cinema4d:cinema4d /opt/cinema4d
 
-# Switch to cinema4d user
-USER cinema4d
+# Use root user, do not wwitch to cinema4d user
+# USER cinema4d
 
 # Set default command
 CMD ["/bin/bash"]
