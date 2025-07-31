@@ -125,5 +125,9 @@ RUN chown -R cinema4d:cinema4d /opt/cinema4d
 # Use root user, do not wwitch to cinema4d user
 # USER cinema4d
 
+# Create rendering directory and copy test scene
+RUN mkdir -p /rendering
+COPY simple_cube_2025.c4d /rendering/
+
 # Set default command
 CMD ["/bin/bash"]
