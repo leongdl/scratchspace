@@ -53,8 +53,8 @@ steps:
         # Print out environment variables inside the container
         echo "Printing container environment variables..."
         docker run --rm \
-          -v "$(pwd)/nuke_render:/render" \
-          -w /render \
+          -v "$(pwd)/nuke_render:/nuke_data" \
+          -w /nuke_data \
           -e FLEXLM_TIMEOUT \
           -e ADSKFLEX_LICENSE_FILE \
           -e foundry_LICENSE \
@@ -71,18 +71,18 @@ steps:
         
         echo "Before running the render...."
         docker run --rm \
-          -v "$(pwd)/nuke_render:/render" \
-          -w /render \
+          -v "$(pwd)/nuke_render:/nuke_data" \
+          -w /nuke_data \
           {{Param.ECR_REGISTRY}}/{{Param.NUKE_REPOSITORY}}:{{Param.NUKE_TAG}} \
-          ls -la /render/
+          ls -la /nuke_data/
 
         # Run Nuke in the Docker container to render the scene
         echo "Rendering the Nuke scene..."
         docker run --rm \
           --network host \
           --ulimit stack=52428800 \
-          -v "$(pwd)/nuke_render:/render" \
-          -w /render \
+          -v "$(pwd)/nuke_render:/nuke_data" \
+          -w /nuke_data \
           -e FLEXLM_TIMEOUT \
           -e ADSKFLEX_LICENSE_FILE \
           -e foundry_LICENSE \
@@ -95,7 +95,6 @@ steps:
           {{Param.ECR_REGISTRY}}/{{Param.NUKE_REPOSITORY}}:{{Param.NUKE_TAG}} \
           bash -c "
             echo 'Setting up Nuke environment...'
-            export foundry_LICENSE=4101@localhost
             export FLEXLM_TIMEOUT=3000000
             cd /opt/nuke/Nuke16.0v1
             echo 'Displaying license environment variables:'
@@ -112,16 +111,16 @@ steps:
             echo \"Nuke path: /opt/nuke/Nuke16.0v1\"
             echo \"Current directory: \$(pwd)\"
             echo 'Nuke environment ready. Starting render...'
-            ./Nuke16.0 -t -x -F 1 /render/SimpleNuke-16.0.nk
-            mv /root/test-output/* /render/
+            ./Nuke16.0 -t -x -F 1 --var \"output_path:/root/test-output\" /render/SimpleNuke-16.0.nk
+            mv /root/test-output/* /nuke_data/
           "
         
         echo "Checking container output folder...."
         docker run --rm \
-          -v "$(pwd)/nuke_render:/render" \
-          -w /render \
+          -v "$(pwd)/nuke_render:/nuke_data" \
+          -w /nuke_data \
           {{Param.ECR_REGISTRY}}/{{Param.NUKE_REPOSITORY}}:{{Param.NUKE_TAG}} \
-          ls -la /render/
+          ls -la /nuke_data/
         
         echo "Checking output folder...."
         ls -la $(pwd)/nuke_render
