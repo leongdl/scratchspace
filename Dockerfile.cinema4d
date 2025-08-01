@@ -26,23 +26,39 @@ RUN dnf update -y && \
     bzip2 \
     which \
     procps-ng \
+    awscli \
+    jq \
+    nc \
+    ethtool \
+    iputils \
     libX11 \
     gtk3 \
+    libnotify \
+    libxcrypt-compat \
+    libxslt \
+    harfbuzz-icu \
+    enchant \
+    libsecret \
+    libXt \
+    orc \
+    libglvnd-glx \
+    libglvnd-egl \
+    mesa-libGLU \
+    libgomp \
+    libsoup \
     atk \
     pango \
     cairo \
     gdk-pixbuf2 \
-    libsoup \
     enchant2 \
-    libsecret \
     libatomic \
     libicu \
-    libxslt \
     libunwind \
     avahi-libs \
     python3.11 \
     python3.11-libs \
     python3.11-devel \
+    traceroute \
     && dnf clean all
 
 # Install specific RPM packages
@@ -104,12 +120,12 @@ RUN useradd -m -s /bin/bash cinema4d
 WORKDIR /opt/cinema4d
 
 # Copy Cinema4D installer
-COPY Cinema4D_2025_2025.3.1_Linux.sh /tmp/
+COPY Cinema4D_2025_2025.0.2_Linux.sh /tmp/
 
 # Make installer executable and run installation
-RUN chmod +x /tmp/Cinema4D_2025_2025.3.1_Linux.sh && \
-    /tmp/Cinema4D_2025_2025.3.1_Linux.sh --quiet --accept --nox11 && \
-    rm -f /tmp/Cinema4D_2025_2025.3.1_Linux.sh
+RUN chmod +x /tmp/Cinema4D_2025_2025.0.2_Linux.sh && \
+    /tmp/Cinema4D_2025_2025.0.2_Linux.sh --quiet --accept && \
+    rm -f /tmp/Cinema4D_2025_2025.0.2_Linux.sh
 
 # Set up Redshift plugin path (if Redshift is installed)
 ENV g_additionalModulePath=/opt/maxon/cinema4dr2025.301/bin/plugins
@@ -120,7 +136,7 @@ RUN if [ -f /opt/cinema4d/resource/modules/python/libs/linux64/python ]; then \
     fi
 
 # Set ownership
-RUN chown -R cinema4d:cinema4d /opt/cinema4d
+# RUN chown -R cinema4d:cinema4d /opt/cinema4d
 
 # Use root user, do not wwitch to cinema4d user
 # USER cinema4d

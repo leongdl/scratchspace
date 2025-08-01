@@ -12,7 +12,7 @@ parameterDefinitions:
   default: sqex2
 - name: CINEMA4D_TAG
   type: STRING
-  default: cinema4d-2025
+  default: cinema4d-latest
 - name: AWS_REGION
   type: STRING
   default: us-west-2
@@ -53,38 +53,71 @@ steps:
         # Print out environment variables inside the container
         echo "Printing container environment variables..."
         docker run --rm \
-          -v "$(pwd)/cinema4d_render:/work" \
-          -w /work \
+          -v "$(pwd)/cinema4d_render:/render" \
+          -w /render \
+          -e FLEXLM_TIMEOUT \
+          -e ADSKFLEX_LICENSE_FILE \
+          -e foundry_LICENSE \
+          -e PIXAR_LICENSE_FILE \
+          -e g_licenseServerRLM \
           -e redshift_LICENSE \
+          -e SESI_LMHOST \
+          -e VRAY_AUTH_CLIENT_FILE_PATH \
+          -e VRAY_AUTH_CLIENT_SETTINGS \
           {{Param.ECR_REGISTRY}}/{{Param.CINEMA4D_REPOSITORY}}:{{Param.CINEMA4D_TAG}} \
           env | sort
         
-        # Copy the Cinema4D scene file to the render directory
-        cp {{Param.Cinema4DSceneFile}} ./cinema4d_render/
+        # Note: Cinema4D scene file is already included in the Docker container at /rendering/simple_cube_2025.c4d
         
         echo "Before running the render...."
         docker run --rm \
-          -v "$(pwd)/cinema4d_render:/work" \
-          -w /work \
+          -v "$(pwd)/cinema4d_render:/render" \
+          -w /render \
           {{Param.ECR_REGISTRY}}/{{Param.CINEMA4D_REPOSITORY}}:{{Param.CINEMA4D_TAG}} \
-          ls -la /work/
+          ls -la /render/
 
         # Run Cinema4D in the Docker container to render the scene
         echo "Rendering the Cinema4D scene..."
         docker run --rm \
           --network host \
-          -v "$(pwd)/cinema4d_render:/work" \
-          -w /work \
+          --ulimit stack=52428800 \
+          -v "$(pwd)/cinema4d_render:/render" \
+          -w /render \
+          -e FLEXLM_TIMEOUT \
+          -e ADSKFLEX_LICENSE_FILE \
+          -e foundry_LICENSE \
+          -e PIXAR_LICENSE_FILE \
+          -e g_licenseServerRLM \
           -e redshift_LICENSE \
+          -e SESI_LMHOST \
+          -e VRAY_AUTH_CLIENT_FILE_PATH \
+          -e VRAY_AUTH_CLIENT_SETTINGS \
           {{Param.ECR_REGISTRY}}/{{Param.CINEMA4D_REPOSITORY}}:{{Param.CINEMA4D_TAG}} \
-          bash -c "/opt/maxon/cinema4dr2025.301/bin/Commandline -render /work/simple_cube_2025.c4d -oimage /work/output -oformat PNG -oresolution 800 600"
+          bash -c "
+            echo 'Setting up Cinema4D environment...'
+            export FLEXLM_TIMEOUT=3000000
+            source /opt/maxon/cinema4dr2025.002/bin/setup_c4d_env
+            cd /opt/maxon/cinema4dr2025.002/bin
+            echo 'Displaying license environment variables:'
+            echo \"Autodesk License endpoint: \$ADSKFLEX_LICENSE_FILE\"
+            echo \"Autodesk Timeout set to: \$FLEXLM_TIMEOUT\"
+            echo \"Foundry License endpoint: \$foundry_LICENSE\"
+            echo \"Renderman License endpoint: \$PIXAR_LICENSE_FILE\"
+            echo \"C4D License endpoint: \$g_licenseServerRLM\"
+            echo \"Redshift/Red Giant License endpoint: \$redshift_LICENSE\"
+            echo \"SideFX License endpoint: \$SESI_LMHOST\"
+            echo \"Vray Auth client file path set to: \$VRAY_AUTH_CLIENT_FILE_PATH\"
+            echo \"Vray License endpoint: \$VRAY_AUTH_CLIENT_SETTINGS\"
+            echo 'Cinema4D environment ready. Starting render...'
+            ./Commandline -render /rendering/simple_cube_2025.c4d -oimage /render/out.jpg -oformat jpg -frame 1
+          "
         
         echo "Checking container output folder...."
         docker run --rm \
-          -v "$(pwd)/cinema4d_render:/work" \
-          -w /work \
+          -v "$(pwd)/cinema4d_render:/render" \
+          -w /render \
           {{Param.ECR_REGISTRY}}/{{Param.CINEMA4D_REPOSITORY}}:{{Param.CINEMA4D_TAG}} \
-          ls -la /work/
+          ls -la /render/
         
         echo "Checking output folder...."
         ls -la $(pwd)/cinema4d_render
@@ -99,7 +132,7 @@ steps:
         echo "Docker cleanup complete."
         
         # Check if any output files were created (Cinema4D typically creates images with various extensions)
-        OUTPUT_FILES=$(find ./cinema4d_render -name "*.png" -o -name "*.jpg" -o -name "*.tiff" -o -name "*.exr" | head -1)
+        OUTPUT_FILES=$(find ./cinema4d_render -name "*.png" -o -name "*.jpg" -o -name "*.jpeg" -o -name "*.tiff" -o -name "*.exr" | head -1)
         if [ -n "$OUTPUT_FILES" ]; then
           echo "Rendering complete. Output files found in ./cinema4d_render/"
           # Copy the first output file to job results directory
