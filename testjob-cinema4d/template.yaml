@@ -96,7 +96,12 @@ steps:
           bash -c "
             echo 'Setting up Cinema4D environment...'
             export FLEXLM_TIMEOUT=3000000
-            source /opt/maxon/cinema4dr2025.002/bin/setup_c4d_env
+            # Setup Cinema4D environment variables directly
+            C4D_BASE=/opt/maxon/cinema4dr2025.002
+            export LD_LIBRARY_PATH=\$C4D_BASE/lib64:\$C4D_BASE/bin/resource/modules/python/libs/python311.linux64.framework/lib64
+            export PATH=\$PATH:\$C4D_BASE/bin
+            export LC_NUMERIC=en_US.UTF-8
+            export PYTHONPATH=\$C4D_BASE/bin/resource/modules/python/libs/python311.linux64.framework/lib/python3.11/lib-dynload
             cd /opt/maxon/cinema4dr2025.002/bin
             echo 'Displaying license environment variables:'
             echo \"Autodesk License endpoint: \$ADSKFLEX_LICENSE_FILE\"
@@ -108,6 +113,12 @@ steps:
             echo \"SideFX License endpoint: \$SESI_LMHOST\"
             echo \"Vray Auth client file path set to: \$VRAY_AUTH_CLIENT_FILE_PATH\"
             echo \"Vray License endpoint: \$VRAY_AUTH_CLIENT_SETTINGS\"
+            echo 'Displaying Cinema4D environment variables:'
+            echo \"C4D_BASE: \$C4D_BASE\"
+            echo \"LD_LIBRARY_PATH: \$LD_LIBRARY_PATH\"
+            echo \"PATH: \$PATH\"
+            echo \"LC_NUMERIC: \$LC_NUMERIC\"
+            echo \"PYTHONPATH: \$PYTHONPATH\"
             echo 'Cinema4D environment ready. Starting render...'
             ./Commandline -render /rendering/simple_cube_2025.c4d -oimage /render/out.jpg -oformat jpg -frame 1
           "
