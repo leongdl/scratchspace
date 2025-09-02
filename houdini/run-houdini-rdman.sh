@@ -2,11 +2,14 @@
 
 # Houdini RenderMan Docker Container Launcher
 # This script starts the houdini-rdman container with proper configuration
+# Includes RenderMan for Houdini plugin and RenderMan ProServer
 #
 # Usage:
 #   ./run-houdini-rdman.sh                    # Start interactive bash shell
 #   ./run-houdini-rdman.sh "hrender --help"   # Run specific command
 #   ./run-houdini-rdman.sh "hrender -d /out/renderman1 /render/RMAN_test_02.hip"
+#   ./run-houdini-rdman.sh "test-renderman"   # Test RenderMan ProServer installation
+#   ./run-houdini-rdman.sh "prman -version"   # Test prman directly
 
 # Set container name and image
 CONTAINER_NAME="houdini-rdman"
@@ -48,10 +51,19 @@ docker run -it --rm \
     export SESI_LMHOST=localhost:1715 && \
     export VRAY_AUTH_CLIENT_FILE_PATH=\"/null\" && \
     export VRAY_AUTH_CLIENT_SETTINGS=\"licset://localhost:30304\" && \
+    export PIXAR_LICENSE_FILE=\"9010@localhost\" && \
+    export RMANTREE=/opt/pixar/RenderManProServer-26.1 && \
+    export RFHTREE=/opt/pixar/RenderManForHoudini-26.1 && \
+    export PATH=\$RMANTREE/bin:\$PATH && \
+    export LD_LIBRARY_PATH=\$RMANTREE/lib:\$LD_LIBRARY_PATH && \
     echo \"License environment configured:\" && \
     echo \"  SESI_LMHOST=\$SESI_LMHOST\" && \
     echo \"  VRAY_AUTH_CLIENT_FILE_PATH=\$VRAY_AUTH_CLIENT_FILE_PATH\" && \
     echo \"  VRAY_AUTH_CLIENT_SETTINGS=\$VRAY_AUTH_CLIENT_SETTINGS\" && \
+    echo \"  PIXAR_LICENSE_FILE=\$PIXAR_LICENSE_FILE\" && \
+    echo \"RenderMan environment configured:\" && \
+    echo \"  RMANTREE=\$RMANTREE\" && \
+    echo \"  RFHTREE=\$RFHTREE\" && \
     echo \"\" && \
     exec $COMMAND"
 
