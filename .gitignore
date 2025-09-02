@@ -1,3 +1,5 @@
 # Archive files
 *.tar.gz
 *.zip
+opt
+*.rpm
