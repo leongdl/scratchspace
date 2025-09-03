@@ -14,8 +14,8 @@
 # The script automatically sets up all RenderMan environment variables and tests prman on startup
 
 # Set container name and image
-CONTAINER_NAME="houdini-rdman"
-IMAGE_NAME="houdini-rdman:latest"
+CONTAINER_NAME="houdini-rdman-rhel"
+IMAGE_NAME="houdini-rdman-rhel:latest"
 
 # Get command to run (default to interactive bash)
 COMMAND="${1:-/bin/bash}"
@@ -29,7 +29,7 @@ fi
 # Check if image exists
 if ! docker image inspect "$IMAGE_NAME" >/dev/null 2>&1; then
     echo "Error: Docker image '$IMAGE_NAME' not found."
-    echo "Please build the image first using: docker build -f Dockerfile.houdini-rdman -t houdini-rdman:latest ."
+    echo "Please build the image first using: docker build -f Dockerfile.houdini-rdman-RHEL -t houdini-rdman-rhel:latest ."
     exit 1
 fi
 
@@ -61,9 +61,7 @@ docker run -it --rm \
     export HOUDINI_PATH=/opt/pixar/RenderManForHoudini-26.1/3.10/20.0.653:/opt/houdini && \
     export PATH=\$RMANTREE/bin:\$PATH && \
     export LD_LIBRARY_PATH=\$RMANTREE/lib:\$LD_LIBRARY_PATH && \
-    export LD_PRELOAD=/usr/lib64/libc_malloc_debug.so.0 && \
     export QT_QPA_PLATFORM=offscreen && \
-    export OCIO= && \
     echo \"License environment configured:\" && \
     echo \"  SESI_LMHOST=\$SESI_LMHOST\" && \
     echo \"  VRAY_AUTH_CLIENT_FILE_PATH=\$VRAY_AUTH_CLIENT_FILE_PATH\" && \
