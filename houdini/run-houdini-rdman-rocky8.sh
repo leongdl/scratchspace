@@ -15,7 +15,7 @@
 
 # Set container name and image
 CONTAINER_NAME="houdini-rdman-rhel"
-IMAGE_NAME="houdini-rdman:latest"
+IMAGE_NAME="houdini-rdman-rocky8:latest"
 
 # Get command to run (default to interactive bash)
 COMMAND="${1:-/bin/bash}"
@@ -29,7 +29,7 @@ fi
 # Check if image exists
 if ! docker image inspect "$IMAGE_NAME" >/dev/null 2>&1; then
     echo "Error: Docker image '$IMAGE_NAME' not found."
-    echo "Please build the image first using: docker build -f Dockerfile.houdini-rdman-RHEL -t houdini-rdman:latest ."
+    echo "Please build the image first using: docker build -f Dockerfile.houdini-rdman-RHEL -t houdini-rdman-rhel:latest ."
     exit 1
 fi
 
@@ -56,9 +56,9 @@ docker run -it --rm \
     export VRAY_AUTH_CLIENT_SETTINGS=\"licset://localhost:30304\" && \
     export PIXAR_LICENSE_FILE=\"9010@localhost\" && \
     export RMANTREE=/opt/pixar/RenderManProServer-26.1 && \
-    export RFHTREE=/opt/pixar/RenderManForHoudini-26.3 && \
-    export RMAN_PROCEDURALPATH=/opt/pixar/RenderManForHoudini-26.3/3.10/20.0.751/openvdb && \
-    export HOUDINI_PATH=/opt/pixar/RenderManForHoudini-26.3/3.10/20.0.751:/opt/houdini && \
+    export RFHTREE=/opt/pixar/RenderManForHoudini-26.1 && \
+    export RMAN_PROCEDURALPATH=/opt/pixar/RenderManForHoudini-26.1/3.10/20.0.653/openvdb && \
+    export HOUDINI_PATH=/opt/pixar/RenderManForHoudini-26.1/3.10/20.0.653:/opt/houdini && \
     export PATH=\$RMANTREE/bin:\$PATH && \
     export LD_LIBRARY_PATH=\$RMANTREE/lib:\$LD_LIBRARY_PATH && \
     export QT_QPA_PLATFORM=offscreen && \
