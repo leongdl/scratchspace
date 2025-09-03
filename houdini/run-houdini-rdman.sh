@@ -5,11 +5,13 @@
 # Includes RenderMan for Houdini plugin and RenderMan ProServer
 #
 # Usage:
-#   ./run-houdini-rdman.sh                    # Start interactive bash shell
+#   ./run-houdini-rdman.sh                    # Start interactive bash shell (auto-tests prman)
 #   ./run-houdini-rdman.sh "hrender --help"   # Run specific command
 #   ./run-houdini-rdman.sh "hrender -d /out/renderman1 /render/RMAN_test_02.hip"
 #   ./run-houdini-rdman.sh "test-renderman"   # Test RenderMan ProServer installation
 #   ./run-houdini-rdman.sh "prman -version"   # Test prman directly
+#
+# The script automatically sets up all RenderMan environment variables and tests prman on startup
 
 # Set container name and image
 CONTAINER_NAME="houdini-rdman"
@@ -54,8 +56,11 @@ docker run -it --rm \
     export PIXAR_LICENSE_FILE=\"9010@localhost\" && \
     export RMANTREE=/opt/pixar/RenderManProServer-26.1 && \
     export RFHTREE=/opt/pixar/RenderManForHoudini-26.1 && \
+    export RMAN_PROCEDURALPATH=/opt/pixar/RenderManForHoudini-26.1/3.10/20.0.653/openvdb && \
+    export HOUDINI_PATH=/opt/pixar/RenderManForHoudini-26.1/3.10/20.0.653:/opt/houdini && \
     export PATH=\$RMANTREE/bin:\$PATH && \
     export LD_LIBRARY_PATH=\$RMANTREE/lib:\$LD_LIBRARY_PATH && \
+    export QT_QPA_PLATFORM=offscreen && \
     echo \"License environment configured:\" && \
     echo \"  SESI_LMHOST=\$SESI_LMHOST\" && \
     echo \"  VRAY_AUTH_CLIENT_FILE_PATH=\$VRAY_AUTH_CLIENT_FILE_PATH\" && \
@@ -64,6 +69,11 @@ docker run -it --rm \
     echo \"RenderMan environment configured:\" && \
     echo \"  RMANTREE=\$RMANTREE\" && \
     echo \"  RFHTREE=\$RFHTREE\" && \
+    echo \"  RMAN_PROCEDURALPATH=\$RMAN_PROCEDURALPATH\" && \
+    echo \"  HOUDINI_PATH=\$HOUDINI_PATH\" && \
+    echo \"\" && \
+    echo \"Testing RenderMan ProServer...\" && \
+    prman -version 2>&1 && \
     echo \"\" && \
     exec $COMMAND"
 

@@ -16,11 +16,12 @@ LABEL description="Houdini with RenderMan Docker container based on Rocky Linux 
 RUN mkdir -p /install /install/houdini
 
 # Install necessary tools and dependencies
-RUN dnf install -y unzip tar gzip bzip2 which libX11 libXext libXrender libXrandr libXfixes libXcursor libXinerama libXi glibc-langpack-en gtk3 mesa-libGL
+RUN dnf install -y unzip tar gzip bzip2 which libX11 libXext libXrender libXrandr libXfixes libXcursor libXinerama libXi glibc-langpack-en gtk3 mesa-libGL ncurses-libs libxcrypt-compat
 
 # Copy Houdini and RenderMan files into the container
 COPY houdini-20.0.653-linux_x86_64_gcc11.2.tar.gz /install/
 COPY RenderManForHoudini-26.1_2324948-linuxRHEL7_gcc93icx232.x86_64.rpm /install/
+COPY RenderManProServer-26.1_2324948-linuxRHEL7_gcc93icx232.x86_64.rpm /install/
 COPY RenderManProServer-26.1_2324948-linuxRHEL7_gcc93icx232.x86_64.rpm /install/
 
 #######################################
@@ -79,17 +80,17 @@ ENV HOUDINI_VERSION=$HOUDINI_MAJOR_RELEASE.$HOUDINI_MINOR_RELEASE.$HOUDINI_BUILD
 # RenderMan for Houdini Installation Section
 #######################################
 
-# Install RenderMan for Houdini from RPM and cleanup in single layer
-RUN rpm -ivh /install/RenderManForHoudini-26.1_2324948-linuxRHEL7_gcc93icx232.x86_64.rpm && \
-    rm -rf /install/RenderManForHoudini-26.1_2324948-linuxRHEL7_gcc93icx232.x86_64.rpm
+# Install RenderMan for Houdini from RPM
+RUN rpm -ivh /install/RenderManForHoudini-26.1_2324948-linuxRHEL7_gcc93icx232.x86_64.rpm
 
 #######################################
 # RenderMan ProServer Installation Section
 #######################################
 
-# Install RenderMan ProServer from RPM and cleanup in single layer
-RUN rpm -ivh /install/RenderManProServer-26.1_2324948-linuxRHEL7_gcc93icx232.x86_64.rpm && \
-    rm -rf /install/RenderManProServer-26.1_2324948-linuxRHEL7_gcc93icx232.x86_64.rpm
+# Install RenderMan ProServer from RPM
+RUN rpm -ivh /install/RenderManProServer-26.1_2324948-linuxRHEL7_gcc93icx232.x86_64.rpm
+
+
 
 # Set up RenderMan environment variables
 ENV RMANTREE=/opt/pixar/RenderManProServer-26.1
@@ -174,8 +175,8 @@ fi\n\
 echo "RenderMan ProServer test completed"' > /usr/local/bin/test-renderman && \
     chmod +x /usr/local/bin/test-renderman
 
-# Cleanup remaining installation directory
-RUN rm -rf /install
+# Keep installation directory for debugging
+# RUN rm -rf /install
 
 # Set default command to show available rendering tools
 CMD echo "Available rendering commands:" && \
