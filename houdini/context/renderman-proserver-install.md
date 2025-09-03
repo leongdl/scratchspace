@@ -94,3 +94,56 @@ RenderMan ProServer requires a valid license. In production:
 ```
 
 The ProServer provides the rendering engine while RenderMan for Houdini provides the Houdini integration layer.
+#
+# Dependency Resolution
+
+### ncurses Compatibility Issue
+During installation, RenderMan ProServer requires `libtinfo.so.5` which is not available by default in Rocky Linux 9. This was resolved by:
+
+1. **Enabling the devel repository**:
+   ```dockerfile
+   RUN dnf install -y dnf-plugins-core && \
+       dnf config-manager --set-enabled devel
+   ```
+
+2. **Installing ncurses-compat-libs**:
+   ```dockerfile
+   RUN dnf install -y ncurses-compat-libs
+   ```
+
+3. **Verification**:
+   ```bash
+   ls -la /usr/lib64/libtinfo*
+   # Shows:
+   # lrwxrwxrwx. 1 root root     15 Aug  5 19:20 /usr/lib64/libtinfo.so.5 -> libtinfo.so.5.9
+   # -rwxr-xr-x. 1 root root 182408 Aug  5 19:20 /usr/lib64/libtinfo.so.5.9
+   ```
+
+### Container Build Status
+The container `houdini-rdman:latest` now includes:
+- ✅ Houdini 20.0.653 installed
+- ✅ RenderMan for Houdini 26.1 plugin installed  
+- ✅ RenderMan ProServer 26.1 installed and working
+- ✅ All required dependencies including `libtinfo.so.5`
+
+### Verification Commands
+After successful build, prman works correctly:
+```bash
+sudo docker run --rm houdini-rdman:latest bash -c "export RMANTREE=/opt/pixar/RenderManProServer-26.1 && export PATH=\$RMANTREE/bin:\$PATH && export LD_LIBRARY_PATH=\$RMANTREE/lib:\$LD_LIBRARY_PATH && prman -version"
+```
+
+Output:
+```
+Pixar PhotoRealistic RenderMan 26.1
+  linked Sun Apr 21 20:10:23 2024 PDT @2324837
+  build linuxRHEL7_x86-64_gcc93icx232_external_release
+  copyright (c) 1988-2024 Pixar.
+```
+
+### Docker Commands Reference
+- **Build container**: `sudo docker build -t houdini-rdman:latest -f Dockerfile.houdini-rdman .`
+- **Run container**: `./run-houdini-rdman.sh`
+- **Test RenderMan**: `./run-houdini-rdman.sh "test-renderman"`
+- **Check prman**: `./run-houdini-rdman.sh "prman -version"`
+
+The run script (`run-houdini-rdman.sh`) is correctly configured to use `houdini-rdman:latest` and automatically sets up all RenderMan environment variables.

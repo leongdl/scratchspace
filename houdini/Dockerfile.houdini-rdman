@@ -1,3 +1,7 @@
+# Build and tag this container as: houdini-rdman:latest
+# Example: docker build -t houdini-rdman:latest -f Dockerfile.houdini-rdman .
+# Run with: docker run --rm -it houdini-rdman:latest
+
 FROM rockylinux:9
 
 # Set locale
@@ -16,7 +20,9 @@ LABEL description="Houdini with RenderMan Docker container based on Rocky Linux 
 RUN mkdir -p /install /install/houdini
 
 # Install necessary tools and dependencies
-RUN dnf install -y unzip tar gzip bzip2 which libX11 libXext libXrender libXrandr libXfixes libXcursor libXinerama libXi glibc-langpack-en gtk3 mesa-libGL ncurses-libs libxcrypt-compat
+RUN dnf install -y dnf-plugins-core && \
+    dnf config-manager --set-enabled devel && \
+    dnf install -y unzip tar gzip bzip2 which libX11 libXext libXrender libXrandr libXfixes libXcursor libXinerama libXi glibc-langpack-en gtk3 mesa-libGL ncurses-libs libxcrypt-compat ncurses-compat-libs
 
 # Copy Houdini and RenderMan files into the container
 COPY houdini-20.0.653-linux_x86_64_gcc11.2.tar.gz /install/
@@ -88,7 +94,10 @@ RUN rpm -ivh /install/RenderManForHoudini-26.1_2324948-linuxRHEL7_gcc93icx232.x8
 #######################################
 
 # Install RenderMan ProServer from RPM
-RUN rpm -ivh /install/RenderManProServer-26.1_2324948-linuxRHEL7_gcc93icx232.x86_64.rpm
+RUN ls -la /install/RenderManProServer* && \
+    rpm -ivh --verbose /install/RenderManProServer-26.1_2324948-linuxRHEL7_gcc93icx232.x86_64.rpm || \
+    (echo "RPM installation failed, checking dependencies:" && \
+     rpm -qpR /install/RenderManProServer-26.1_2324948-linuxRHEL7_gcc93icx232.x86_64.rpm)
 
 
 

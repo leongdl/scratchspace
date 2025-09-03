@@ -1,0 +1,9 @@
+##RenderMan RIB
+version 3.04
+Display "test.tif" "file" "rgb"
+Format 640 480 1
+Projection "perspective" "fov" 45
+WorldBegin
+    Color 1 0 0
+    Sphere 1 -1 1 360
+WorldEnd

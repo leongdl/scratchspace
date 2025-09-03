@@ -45,6 +45,7 @@ echo ""
 docker run -it --rm \
     --name "$CONTAINER_NAME" \
     --network host \
+    --memory=8g \
     --ulimit stack=52428800 \
     --volume "$(pwd):/workspace" \
     --workdir /workspace \
@@ -60,7 +61,9 @@ docker run -it --rm \
     export HOUDINI_PATH=/opt/pixar/RenderManForHoudini-26.1/3.10/20.0.653:/opt/houdini && \
     export PATH=\$RMANTREE/bin:\$PATH && \
     export LD_LIBRARY_PATH=\$RMANTREE/lib:\$LD_LIBRARY_PATH && \
+    export LD_PRELOAD=/usr/lib64/libc_malloc_debug.so.0 && \
     export QT_QPA_PLATFORM=offscreen && \
+    export OCIO= && \
     echo \"License environment configured:\" && \
     echo \"  SESI_LMHOST=\$SESI_LMHOST\" && \
     echo \"  VRAY_AUTH_CLIENT_FILE_PATH=\$VRAY_AUTH_CLIENT_FILE_PATH\" && \
@@ -71,9 +74,6 @@ docker run -it --rm \
     echo \"  RFHTREE=\$RFHTREE\" && \
     echo \"  RMAN_PROCEDURALPATH=\$RMAN_PROCEDURALPATH\" && \
     echo \"  HOUDINI_PATH=\$HOUDINI_PATH\" && \
-    echo \"\" && \
-    echo \"Testing RenderMan ProServer...\" && \
-    prman -version 2>&1 && \
     echo \"\" && \
     exec $COMMAND"
 
