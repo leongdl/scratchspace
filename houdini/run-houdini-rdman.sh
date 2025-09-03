@@ -55,10 +55,10 @@ docker run -it --rm \
     export VRAY_AUTH_CLIENT_FILE_PATH=\"/null\" && \
     export VRAY_AUTH_CLIENT_SETTINGS=\"licset://localhost:30304\" && \
     export PIXAR_LICENSE_FILE=\"9010@localhost\" && \
-    export RMANTREE=/opt/pixar/RenderManProServer-26.1 && \
+    export RMANTREE=/opt/pixar/RenderManProServer-26.3 && \
     export RFHTREE=/opt/pixar/RenderManForHoudini-26.3 && \
-    export RMAN_PROCEDURALPATH=/opt/pixar/RenderManForHoudini-26.3/3.10/20.0.751/openvdb && \
-    export HOUDINI_PATH=/opt/pixar/RenderManForHoudini-26.3/3.10/20.0.751:/opt/houdini && \
+    export RMAN_PROCEDURALPATH=/opt/pixar/RenderManForHoudini-26.3/3.10/20.0.896/openvdb && \
+    export HOUDINI_PATH=/opt/pixar/RenderManForHoudini-26.3/3.10/20.0.896:/opt/houdini && \
     export PATH=\$RMANTREE/bin:\$PATH && \
     export LD_LIBRARY_PATH=\$RMANTREE/lib:\$LD_LIBRARY_PATH && \
     export QT_QPA_PLATFORM=offscreen && \
