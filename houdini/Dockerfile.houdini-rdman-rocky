@@ -1,8 +1,8 @@
 # Build and tag this container as: houdini-rdman:latest
-# Example: docker build -t houdini-rdman:latest -f Dockerfile.houdini-rdman .
+# Example: docker build -t houdini-rdman:latest -f Dockerfile.houdini-rdman-rocky .
 # Run with: docker run --rm -it houdini-rdman:latest
 
-FROM registry.access.redhat.com/ubi9/ubi:9.3
+FROM rockylinux:9
 
 # Set locale
 ENV LANG=en_US.UTF-8
@@ -14,18 +14,29 @@ ENV LC_NUMERIC=en_US.UTF-8
 
 # Add metadata
 LABEL maintainer="SuperDave"
-LABEL description="Houdini with RenderMan Docker container based on RHEL 9.3"
+LABEL description="Houdini with RenderMan Docker container based on Rocky Linux 9"
 
 # Create installation directories
 RUN mkdir -p /install /install/houdini
 
 # Install all dependencies in one layer to reduce build time
-RUN dnf install -y unzip tar gzip bzip2 which \
+# Including the missing X11/XCB libraries that were causing DSO issues
+RUN dnf install -y dnf-plugins-core && \
+    dnf config-manager --set-enabled devel && \
+    dnf install -y unzip tar gzip bzip2 which \
     libSM libICE libXt libXcomposite libXdamage libXfixes libXext libXrender libXi \
     libXtst libXau libxcb libXinerama libXrandr libXcursor libXScrnSaver \
     alsa-lib mesa-libGL mesa-libGLU bc python3 \
     nss nspr pciutils sudo \
-    mesa-dri-drivers fontconfig && \
+    mesa-dri-drivers fontconfig \
+    glibc-langpack-en gtk3 ncurses-libs libxcrypt-compat ncurses-compat-libs \
+    qt5-qtbase-gui qt5-qtx11extras xorg-x11-server-Xvfb \
+    libglvnd-glx libglvnd-opengl libxshmfence libXdmcp \
+    libxkbcommon libxkbcommon-x11 \
+    xcb-util-wm xcb-util-image xcb-util-keysyms xcb-util-renderutil \
+    xcb-util \
+    python3-pip && \
+    pip3 install future lxml requests && \
     dnf clean all
 
 # Create csh symlink for hrender (which requires csh)
@@ -75,9 +86,9 @@ ENV HOUDINI_MINOR_RELEASE=0
 ENV HOUDINI_BUILD_VERSION=896
 ENV HOUDINI_VERSION=$HOUDINI_MAJOR_RELEASE.$HOUDINI_MINOR_RELEASE.$HOUDINI_BUILD_VERSION
 
-# Configure Houdini DSO error handling
+# Configure Houdini DSO error handling (set to 0 for permissive RenderMan ROP operations)
 RUN mkdir -p /opt/houdini/houdini/config && \
-    echo 'HOUDINI_DSO_ERROR = 2' > /opt/houdini/houdini/config/houdini.env
+    echo 'HOUDINI_DSO_ERROR = 0' > /opt/houdini/houdini/config/houdini.env
 
 #######################################
 # RenderMan for Houdini Installation Section
@@ -95,8 +106,6 @@ RUN ls -la /install/RenderManProServer* && \
     rpm -ivh --verbose /install/RenderManProServer-26.3_2352291-linuxRHEL9_gcc11icx232.x86_64.rpm || \
     (echo "RPM installation failed, checking dependencies:" && \
      rpm -qpR /install/RenderManProServer-26.3_2352291-linuxRHEL9_gcc11icx232.x86_64.rpm)
-
-
 
 # Set up RenderMan environment variables
 ENV RMANTREE=/opt/pixar/RenderManProServer-26.3
@@ -183,9 +192,6 @@ echo "RenderMan ProServer test completed"' > /usr/local/bin/test-renderman && \
 
 # Keep installation directory for debugging
 # RUN rm -rf /install
-
-# Install additional RenderMan dependencies
-RUN dnf install -y --nogpgcheck --setopt=sslverify=false fontconfig && dnf clean all
 
 # Set default command to show available rendering tools
 CMD echo "Available rendering commands:" && \

@@ -58,10 +58,11 @@ docker run -it --rm \
     export RMANTREE=/opt/pixar/RenderManProServer-26.3 && \
     export RFHTREE=/opt/pixar/RenderManForHoudini-26.3 && \
     export RMAN_PROCEDURALPATH=/opt/pixar/RenderManForHoudini-26.3/3.10/20.0.896/openvdb && \
-    export HOUDINI_PATH=/opt/pixar/RenderManForHoudini-26.3/3.10/20.0.896:/opt/houdini && \
+    export HOUDINI_PATH=/opt/pixar/RenderManForHoudini-26.3/3.10/20.0.896:/opt/houdini/houdini:/opt/houdini && \
     export PATH=\$RMANTREE/bin:\$PATH && \
     export LD_LIBRARY_PATH=\$RMANTREE/lib:\$LD_LIBRARY_PATH && \
     export QT_QPA_PLATFORM=offscreen && \
+    export HOUDINI_DSO_ERROR=0 && \
     echo \"License environment configured:\" && \
     echo \"  SESI_LMHOST=\$SESI_LMHOST\" && \
     echo \"  VRAY_AUTH_CLIENT_FILE_PATH=\$VRAY_AUTH_CLIENT_FILE_PATH\" && \
