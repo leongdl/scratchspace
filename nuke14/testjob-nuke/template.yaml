@@ -1,0 +1,158 @@
+specificationVersion: 'jobtemplate-2023-09'
+name: Nuke-16.0
+parameterDefinitions:
+- name: Message
+  type: STRING
+  default: Welcome to AWS Deadline Cloud Nuke!
+- name: ECR_REGISTRY
+  type: STRING
+  default: 224071664257.dkr.ecr.us-west-2.amazonaws.com
+- name: NUKE_REPOSITORY
+  type: STRING
+  default: sqex2
+- name: NUKE_TAG
+  type: STRING
+  default: nuke16-latest
+- name: AWS_REGION
+  type: STRING
+  default: us-west-2
+- name: NukeSceneFile
+  type: PATH
+  default: SimpleNuke-16.0.nk
+  dataFlow: IN
+  objectType: FILE
+steps:
+- name: NukeRender
+  script:
+    actions:
+      onRun:
+        command: bash
+        args: ['{{Task.File.Run}}']
+    embeddedFiles:
+    - name: Run
+      type: TEXT
+      data: |
+        #!/bin/bash
+        set -e  # Exit on error
+        
+        echo '{{Param.Message}}'
+        echo "Current user: $(whoami)"
+        echo "Current directory: $(pwd)"
+        
+        # Login to ECR and pull the latest Nuke image
+        echo "Logging in to Amazon ECR and pulling the latest Nuke image..."
+        aws ecr get-login-password --region {{Param.AWS_REGION}} | docker login --username AWS --password-stdin {{Param.ECR_REGISTRY}}
+        docker pull {{Param.ECR_REGISTRY}}/{{Param.NUKE_REPOSITORY}}:{{Param.NUKE_TAG}}
+        
+        # Create a directory for the Nuke render
+        mkdir -p ./nuke_render
+        
+        # Pass through license environment variables from host
+        echo "Passing through license environment variables from host..."
+        
+        # Print out environment variables inside the container
+        echo "Printing container environment variables..."
+        docker run --rm \
+          -v "$(pwd)/nuke_render:/nuke_data" \
+          -w /nuke_data \
+          -e FLEXLM_TIMEOUT \
+          -e ADSKFLEX_LICENSE_FILE \
+          -e foundry_LICENSE \
+          -e PIXAR_LICENSE_FILE \
+          -e g_licenseServerRLM \
+          -e redshift_LICENSE \
+          -e SESI_LMHOST \
+          -e VRAY_AUTH_CLIENT_FILE_PATH \
+          -e VRAY_AUTH_CLIENT_SETTINGS \
+          {{Param.ECR_REGISTRY}}/{{Param.NUKE_REPOSITORY}}:{{Param.NUKE_TAG}} \
+          env | sort
+        
+        # Note: Nuke scene file is already included in the Docker container at /render/SimpleNuke-16.0.nk
+        
+        echo "Before running the render...."
+        docker run --rm \
+          -v "$(pwd)/nuke_render:/nuke_data" \
+          -w /nuke_data \
+          {{Param.ECR_REGISTRY}}/{{Param.NUKE_REPOSITORY}}:{{Param.NUKE_TAG}} \
+          ls -la /nuke_data/
+
+        # Run Nuke in the Docker container to render the scene
+        echo "Rendering the Nuke scene..."
+        docker run --rm \
+          --network host \
+          --ulimit stack=52428800 \
+          -v "$(pwd)/nuke_render:/nuke_data" \
+          -w /nuke_data \
+          -e FLEXLM_TIMEOUT \
+          -e ADSKFLEX_LICENSE_FILE \
+          -e foundry_LICENSE \
+          -e PIXAR_LICENSE_FILE \
+          -e g_licenseServerRLM \
+          -e redshift_LICENSE \
+          -e SESI_LMHOST \
+          -e VRAY_AUTH_CLIENT_FILE_PATH \
+          -e VRAY_AUTH_CLIENT_SETTINGS \
+          {{Param.ECR_REGISTRY}}/{{Param.NUKE_REPOSITORY}}:{{Param.NUKE_TAG}} \
+          bash -c "
+            echo 'Setting up Nuke environment...'
+            export FLEXLM_TIMEOUT=3000000
+            cd /opt/nuke/Nuke16.0v1
+            echo 'Displaying license environment variables:'
+            echo \"Autodesk License endpoint: \$ADSKFLEX_LICENSE_FILE\"
+            echo \"Autodesk Timeout set to: \$FLEXLM_TIMEOUT\"
+            echo \"Foundry License endpoint: \$foundry_LICENSE\"
+            echo \"Renderman License endpoint: \$PIXAR_LICENSE_FILE\"
+            echo \"C4D License endpoint: \$g_licenseServerRLM\"
+            echo \"Redshift/Red Giant License endpoint: \$redshift_LICENSE\"
+            echo \"SideFX License endpoint: \$SESI_LMHOST\"
+            echo \"Vray Auth client file path set to: \$VRAY_AUTH_CLIENT_FILE_PATH\"
+            echo \"Vray License endpoint: \$VRAY_AUTH_CLIENT_SETTINGS\"
+            echo 'Displaying Nuke environment variables:'
+            echo \"Nuke path: /opt/nuke/Nuke16.0v1\"
+            echo \"Current directory: \$(pwd)\"
+            echo 'Nuke environment ready. Starting render...'
+            ./Nuke16.0 -t -x -F 1 --var \"output_path:/root/test-output\" /render/SimpleNuke-16.0.nk
+            mv /root/test-output/* /nuke_data/
+          "
+        
+        echo "Checking container output folder...."
+        docker run --rm \
+          -v "$(pwd)/nuke_render:/nuke_data" \
+          -w /nuke_data \
+          {{Param.ECR_REGISTRY}}/{{Param.NUKE_REPOSITORY}}:{{Param.NUKE_TAG}} \
+          ls -la /nuke_data/
+        
+        echo "Checking output folder...."
+        ls -la $(pwd)/nuke_render
+        
+        # Cleanup Docker containers and images
+        echo "Cleaning up Docker resources..."
+        # Remove all stopped containers
+        docker container prune -f
+        # Remove dangling images (images with no tags)
+        docker image prune -f
+        
+        echo "Docker cleanup complete."
+        
+        # Check if any output files were created (Nuke typically creates images with various extensions)
+        OUTPUT_FILES=$(find ./nuke_render -name "*.png" -o -name "*.jpg" -o -name "*.jpeg" -o -name "*.tiff" -o -name "*.exr" | head -1)
+        if [ -n "$OUTPUT_FILES" ]; then
+          echo "Rendering complete. Output files found in ./nuke_render/"
+          # Copy the first output file to job results directory
+          OUTPUT_FILE=$(basename "$OUTPUT_FILES")
+          cp "$OUTPUT_FILES" ./
+          echo "Output copied to job results directory: $OUTPUT_FILE"
+          
+          # Upload the output file to S3
+          TIMESTAMP=$(date +%Y%m%d-%H%M%S)
+          echo "Uploading $OUTPUT_FILE to S3 bucket adeadlineja at path dockerout/nuke-${TIMESTAMP}-${OUTPUT_FILE}"
+          aws s3 cp "./$OUTPUT_FILE" "s3://adeadlineja/dockerout/nuke-${TIMESTAMP}-${OUTPUT_FILE}"
+          if [ $? -eq 0 ]; then
+            echo "Successfully uploaded to S3"
+          else
+            echo "Failed to upload to S3"
+          fi
+        else
+          echo "Error: Rendering failed. No output files were created."
+          exit 1
+        fi
