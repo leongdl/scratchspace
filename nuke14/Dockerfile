@@ -43,18 +43,18 @@ RUN groupadd -r nuke && useradd -r -g nuke -d /opt/nuke -s /bin/bash nuke
 WORKDIR /opt/nuke
 
 # Copy Nuke installer
-COPY Nuke14.1v8-linux-x86_64.tgz /tmp/
+COPY Nuke14.1v4-linux-x86_64.tgz /tmp/
 
 # Extract and install Nuke
 RUN cd /tmp && \
-    tar -xzf Nuke14.1v8-linux-x86_64.tgz && \
-    chmod +x Nuke14.1v8-linux-x86_64.run && \
-    printf "y\ny\n" | ./Nuke14.1v8-linux-x86_64.run --mode unattended --prefix /opt/nuke && \
+    tar -xzf Nuke14.1v4-linux-x86_64.tgz && \
+    chmod +x Nuke14.1v4-linux-x86_64.run && \
+    printf "y\ny\n" | ./Nuke14.1v4-linux-x86_64.run --mode unattended --prefix /opt/nuke && \
     ls -la /tmp && \
     find /tmp -name "*Nuke*" && \
-    cp -r /tmp/Nuke14.1v8/* /opt/nuke/ && \
+    cp -r /tmp/Nuke14.1v4/* /opt/nuke/ && \
     chown -R nuke:nuke /opt/nuke && \
-    rm -rf /tmp/Nuke14.1v8 /tmp/Nuke14.1v8-linux-x86_64.tgz /tmp/Nuke14.1v8-linux-x86_64.run && \
+    rm -rf /tmp/Nuke14.1v4 /tmp/Nuke14.1v4-linux-x86_64.tgz /tmp/Nuke14.1v4-linux-x86_64.run && \
     ln -s /opt/nuke/Nuke14.1 /opt/nuke/Nuke
 
 # Create samples directory

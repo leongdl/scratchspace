@@ -17,7 +17,7 @@ docker build -t nuke14-plugins-final .
 
 ### Run a Test Render
 ```bash
-./run_simple_effects.sh
+./run_nuke_container.sh
 ```
 
 ## What's Included
@@ -31,28 +31,40 @@ docker build -t nuke14-plugins-final .
 
 #### 1. KeenTools 2025.2.0
 - **Type:** Native Nuke Plugin (.so)
+- **Format:** Native Nuke plugin (not OFX)
 - **Location:** `/usr/local/NUKE/14.1/plugins/KeenTools/`
-- **Binary:** `/usr/local/NUKE/14.1/plugins/KeenTools/plugin_libs/KeenTools.so`
+- **Main Plugin:** `/usr/local/NUKE/14.1/plugins/KeenTools/plugin_libs/KeenTools.so`
 - **Status:** ✅ Registered (Nuke-specific plugin directory)
 - **Features:** Face tracking, GeoTracker, FaceBuilder
+- **Discovery:** Automatically loaded from Nuke plugin directory
 
 #### 2. NeatVideo 6 OFX Demo
 - **Type:** OFX Plugin (.ofx)
+- **Format:** Standard OFX bundle
 - **Location:** `/usr/local/Neat Video v6 OFX/NeatVideo6.ofx.bundle/`
-- **Binary:** `/usr/local/Neat Video v6 OFX/NeatVideo6.ofx.bundle/Contents/Linux-x86-64/NeatVideo6.ofx`
-- **Symlink:** `/usr/OFX/Plugins/NeatVideo6.ofx.bundle` → actual location
-- **Status:** ✅ Registered (Standard OFX directory)
+- **Main Plugin:** `/usr/local/Neat Video v6 OFX/NeatVideo6.ofx.bundle/Contents/Linux-x86-64/NeatVideo6.ofx`
+- **Symlink:** `/usr/OFX/Plugins/NeatVideo6.ofx.bundle` → `/usr/local/Neat Video v6 OFX/NeatVideo6.ofx.bundle`
+- **Status:** ✅ Registered (Standard OFX directory via symlink)
 - **Features:** Noise reduction and video enhancement
+- **Discovery:** Automatically loaded from `/usr/OFX/Plugins/`
 
 #### 3. RSMB 6 OFX (ReelSmart Motion Blur)
 - **Type:** OFX Plugin (.ofx) - 3 variants
+- **Format:** Standard OFX bundles
 - **Location:** `/usr/OFX/Plugins/RSMB6OFX/`
-- **Binaries:**
-  - `/usr/OFX/Plugins/RSMB6OFX/rsmb.ofx.bundle/Contents/Linux-x86-64/rsmb.ofx`
-  - `/usr/OFX/Plugins/RSMB6OFX/rsmbregular.ofx.bundle/Contents/Linux-x86-64/rsmbregular.ofx`
-  - `/usr/OFX/Plugins/RSMB6OFX/rsmbvectors.ofx.bundle/Contents/Linux-x86-64/rsmbvectors.ofx`
+- **Main Plugins:**
+  - **Main RSMB:** `/usr/OFX/Plugins/RSMB6OFX/rsmb.ofx.bundle/Contents/Linux-x86-64/rsmb.ofx`
+  - **Regular RSMB:** `/usr/OFX/Plugins/RSMB6OFX/rsmbregular.ofx.bundle/Contents/Linux-x86-64/rsmbregular.ofx`
+  - **Vector RSMB:** `/usr/OFX/Plugins/RSMB6OFX/rsmbvectors.ofx.bundle/Contents/Linux-x86-64/rsmbvectors.ofx`
 - **Status:** ✅ Registered (Standard OFX directory)
 - **Features:** Motion blur effects (main, regular, and vector-based)
+- **Discovery:** Automatically loaded from `/usr/OFX/Plugins/`
+
+### Plugin Summary
+- **Total Nuke Plugins (.so):** 1 (KeenTools)
+- **Total OFX Plugins (.ofx):** 4 (1 NeatVideo + 3 RSMB variants)
+- **All plugins accessible to Nuke** via standard plugin discovery paths
+- **No manual configuration required** - plugins auto-discovered on Nuke startup
 
 ### Sample Files
 - **SimpleNuke-16.nk** - Basic compositing test
