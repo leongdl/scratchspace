@@ -1,0 +1,22 @@
+{
+ "name": "motionblur2d_10.nk",
+ "description": "",
+ "override_frame_range": false,
+ "frame_list": "1-30",
+ "write_node_selection": null,
+ "view_selection": "",
+ "is_proxy_mode": false,
+ "continue_on_error": false,
+ "input_filenames": [],
+ "input_directories": [],
+ "output_directories": [],
+ "timeouts_enabled": true,
+ "on_run_timeout_seconds": 518400,
+ "on_enter_timeout_seconds": 86400,
+ "on_exit_timeout_seconds": 3600,
+ "include_gizmos_in_job_bundle": false,
+ "enable_docker": true,
+ "ecr_repo": "224071664257.dkr.ecr.us-west-2.amazonaws.com/sqex2",
+ "docker_image": "nuke14.4",
+ "include_adaptor_wheels": false
+}

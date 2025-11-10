@@ -1,21 +1,21 @@
-#! C:/Program Files/Nuke14.0v2/nuke-14.0.2.dll -nx
-version 14.0 v2
+#! C:/Program Files/Nuke10.0Main.000274a/nuke-10.0.dll -nx
+version 10.0 v0.000274a
 define_window_layout_xml {<?xml version="1.0" encoding="UTF-8"?>
 <layout version="1.0">
-    <window x="0" y="0" w="2033" h="1184" screen="0">
+    <window x="0" y="0" w="1920" h="1040" screen="0">
         <splitter orientation="1">
             <split size="40"/>
-            <dock id="" hideTitles="1" activePageId="Toolbar.1" focus="true">
+            <dock id="" hideTitles="1" activePageId="Toolbar.1">
                 <page id="Toolbar.1"/>
             </dock>
-            <split size="1370" stretch="1"/>
+            <split size="1241" stretch="1"/>
             <splitter orientation="2">
-                <split size="670"/>
+                <split size="572"/>
                 <dock id="" activePageId="Viewer.1">
                     <page id="Viewer.1"/>
                 </dock>
-                <split size="472"/>
-                <dock id="" activePageId="DAG.1">
+                <split size="403"/>
+                <dock id="" activePageId="DAG.1" focus="true">
                     <page id="DAG.1"/>
                     <page id="Curve Editor.1"/>
                     <page id="DopeSheet.1"/>
@@ -24,8 +24,6 @@ define_window_layout_xml {<?xml version="1.0" encoding="UTF-8"?>
             <split size="615"/>
             <dock id="" activePageId="Properties.1">
                 <page id="Properties.1"/>
-                <page id="uk.co.thefoundry.backgroundrenderview.1"/>
-                <page id="Scenegraph.1"/>
             </dock>
         </splitter>
     </window>
@@ -33,19 +31,11 @@ define_window_layout_xml {<?xml version="1.0" encoding="UTF-8"?>
 }
 Root {
  inputs 0
- name C:/Users/RDP/deadline-cloud-for-nuke/scratchspace/nuke14/motionblur2d_10.nk
+ name C:/Documentation/output/Docs/main/src/html/scripts/MotionBlur2D_10.nk
  last_frame 30
  format "2048 1556 0 0 2048 1556 1 2K_Super_35(full-ap)"
  proxy_type scale
  proxy_format "1024 778 0 0 1024 778 1 1K_Super_35(full-ap)"
- colorManagement Nuke
- workingSpaceLUT linear
- monitorLut sRGB
- monitorOutLUT rec709
- int8Lut sRGB
- int16Lut sRGB
- logLut Cineon
- floatLut linear
 }
 ColorWheel {
  inputs 0
@@ -63,7 +53,7 @@ Transform {
  xpos -66
  ypos -193
 }
-set N261d400 [stack 0]
+set N3b44400 [stack 0]
 Dot {
  name Dot1
  xpos -176
@@ -92,7 +82,7 @@ Tracker3 {
  xpos -210
  ypos -131
 }
-push $N261d400
+push $N3b44400
 MotionBlur2D {
  inputs 2
  shutter 1.18
@@ -110,23 +100,12 @@ VectorBlur2 {
  xpos -66
  ypos -86
 }
-Write {
- file "\[getenv SCRIPT_DIR]/motionblur_####.exr"
- file_type exr
- create_directories true
- checkHashOnRead false
- version 4
- name Write1
- xpos -66
- ypos -27
-}
 Viewer {
  frame_range 1-30
  input_process false
- monitorOutOutputTransform rec709
  name Viewer1
  xpos -66
- ypos 19
+ ypos -27
 }
 StickyNote {
  inputs 0
