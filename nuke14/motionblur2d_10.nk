@@ -111,7 +111,7 @@ VectorBlur2 {
  ypos -86
 }
 Write {
- file "\[getenv SCRIPT_DIR]/motionblur_####.exr"
+ file "\[file dirname \[value root.name]]/motionblur_####.exr"
  file_type exr
  create_directories true
  checkHashOnRead false
