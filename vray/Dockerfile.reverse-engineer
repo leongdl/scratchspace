@@ -1,0 +1,20 @@
+FROM rockylinux:9
+
+# Layer 1: Operating system (base layer - already exists)
+
+# Layer 2: System dependencies
+# TBD
+
+# Layer 3: VRay installation and configuration (all remaining operations in one layer)
+ENV LANG=en_US.UTF-8 \
+    LC_ALL=en_US.UTF-8 \
+    LC_NUMERIC=en_US.UTF-8
+RUN mkdir -p /install /opt/vray /render
+COPY vraystd_adv_71000_rhel8_clang-gcc-11.2 /install/
+RUN chmod +x /install/vraystd_adv_71000_rhel8_clang-gcc-11.2 && \
+    /install/vraystd_adv_71000_rhel8_clang-gcc-11.2 -unpackInstall=/opt/vray && \
+    rm -rf /install
+ENV PATH=/opt/vray/bin:$PATH \
+    LD_LIBRARY_PATH=/opt/vray/lib:$LD_LIBRARY_PATH \
+    QT_QPA_PLATFORM=offscreen
+WORKDIR /render
