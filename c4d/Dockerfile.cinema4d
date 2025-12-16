@@ -1,0 +1,153 @@
+FROM rockylinux:8
+
+# Set environment variables
+ENV LANG=en_US.UTF-8
+ENV LC_ALL=en_US.UTF-8
+ENV C4D_VERSION=2025
+ENV C4D_LOCATION=/opt/cinema4d
+ENV C4D_COMMANDLINE_EXECUTABLE=/opt/cinema4d/bin/Commandline
+
+# Enable EPEL and PowerTools repositories
+RUN dnf install -y epel-release && \
+    dnf config-manager --set-enabled powertools
+
+# Install basic dependencies and required libraries for Cinema4D
+RUN dnf update -y && \
+    dnf install -y \
+    wget \
+    unzip \
+    tar \
+    gzip \
+    bzip2 \
+    which \
+    procps-ng \
+    awscli \
+    jq \
+    nc \
+    ethtool \
+    iputils \
+    libX11 \
+    gtk3 \
+    libnotify \
+    libxcrypt \
+    libxslt \
+    harfbuzz-icu \
+    enchant \
+    libsecret \
+    libXt \
+    orc \
+    libglvnd-glx \
+    libglvnd-egl \
+    mesa-libGLU \
+    libgomp \
+    libsoup \
+    atk \
+    pango \
+    cairo \
+    gdk-pixbuf2 \
+    enchant2 \
+    libatomic \
+    libicu \
+    libunwind \
+    avahi-libs \
+    python39 \
+    python39-libs \
+    python39-devel \
+    traceroute \
+    && dnf clean all
+
+# Install webkit2gtk3 (Rocky 8 has the 4.0 API that Cinema4D needs)
+RUN dnf install -y webkit2gtk3 && dnf clean all || true
+
+# Install comprehensive library set for Cinema4D
+RUN dnf install -y \
+    openvdb \
+    embree3 \
+    woff2 \
+    libcloudproviders \
+    libtracker-sparql \
+    libffi \
+    harfbuzz-icu \
+    libnotify \
+    gstreamer1 \
+    gstreamer1-plugins-base \
+    libbrotli \
+    libgudev \
+    orc \
+    libsoup \
+    enchant2 \
+    libsecret \
+    libatomic \
+    atk \
+    pango \
+    gdk-pixbuf2 \
+    cairo \
+    cairo-gobject \
+    harfbuzz \
+    fontconfig \
+    fribidi \
+    libepoxy \
+    at-spi2-atk \
+    libwayland-cursor \
+    libwayland-egl \
+    libthai \
+    freetype \
+    pixman \
+    graphite2 \
+    at-spi2-core \
+    json-glib \
+    libdatrie \
+    libicu \
+    libxslt \
+    lcms2 \
+    libunwind \
+    avahi-libs \
+    libhyphen \
+    && dnf clean all || true
+
+# Create cinema4d user
+RUN useradd -m -s /bin/bash cinema4d
+
+# Set working directory
+WORKDIR /opt/cinema4d
+
+# Copy Cinema4D installer (2025.3.3)
+COPY Cinema4D_2025_2025.3.3_Linux.sh /tmp/
+
+# Make installer executable and run installation
+RUN chmod +x /tmp/Cinema4D_2025_2025.3.3_Linux.sh && \
+    /tmp/Cinema4D_2025_2025.3.3_Linux.sh --quiet --accept && \
+    rm -f /tmp/Cinema4D_2025_2025.3.3_Linux.sh
+
+# Copy and install Redshift 2026.1.1
+COPY redshift_2026.1.1_2105803004_linux_x64.run /tmp/redshift_installer.run
+RUN chmod +x /tmp/redshift_installer.run && \
+    /tmp/redshift_installer.run --accept --quiet --nox11 && \
+    rm /tmp/redshift_installer.run
+
+# Set up Redshift environment variables
+ENV REDSHIFT_COREDATAPATH=/usr/redshift
+ENV REDSHIFT_LOCALDATAPATH=/root/redshift
+
+# Set up Redshift plugin path for Cinema4D R2025
+# Option 1: Use environment variable (for command-line rendering)
+# Must include the version-specific subdirectory (R2025) per install.txt
+ENV g_additionalModulePath=/usr/redshift/redshift4c4d/R2025
+
+# Option 2: Copy plugin to Cinema4D plugins directory for automatic loading
+RUN mkdir -p /opt/maxon/cinema4dr2025.303/bin/plugins && \
+    cp -R /usr/redshift/redshift4c4d/R2025/* /opt/maxon/cinema4dr2025.303/bin/plugins/
+
+# Ensure Python ensurepip is available for Cinema4D's Python
+RUN if [ -f /opt/cinema4d/resource/modules/python/libs/linux64/python ]; then \
+        /opt/cinema4d/resource/modules/python/libs/linux64/python -m ensurepip || true; \
+    fi
+
+# Create rendering directory and copy test scenes
+RUN mkdir -p /rendering
+COPY simple_cube_2025.c4d /rendering/
+COPY substance_cube.zip /tmp/
+RUN unzip /tmp/substance_cube.zip -d /rendering && rm /tmp/substance_cube.zip
+
+# Set default command
+CMD ["/bin/bash"]
