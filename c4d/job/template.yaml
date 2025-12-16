@@ -1,0 +1,335 @@
+specificationVersion: 'jobtemplate-2023-09'
+name: Cinema4D-2025
+parameterDefinitions:
+- name: Message
+  type: STRING
+  default: Welcome to AWS Deadline Cloud Cinema4D!
+- name: ECR_REGISTRY
+  type: STRING
+  default: 224071664257.dkr.ecr.us-west-2.amazonaws.com
+- name: CINEMA4D_REPOSITORY
+  type: STRING
+  default: sqex2
+- name: CINEMA4D_TAG
+  type: STRING
+  default: cinema4d-2025.3.3
+- name: AWS_REGION
+  type: STRING
+  default: us-west-2
+- name: Cinema4DSceneFile
+  type: PATH
+  default: SubstanceMaterialCube.c4d
+  dataFlow: IN
+  objectType: FILE
+steps:
+- name: Cinema4DRender
+  script:
+    actions:
+      onRun:
+        command: bash
+        args: ['{{Task.File.Run}}']
+    embeddedFiles:
+    - name: Run
+      type: TEXT
+      data: |
+        #!/bin/bash
+        set -e  # Exit on error
+        
+        echo '{{Param.Message}}'
+        echo "Current user: $(whoami)"
+        echo "Current directory: $(pwd)"
+        
+        # Login to ECR and pull the latest Cinema4D image
+        echo "Logging in to Amazon ECR and pulling the latest Cinema4D image..."
+        aws ecr get-login-password --region {{Param.AWS_REGION}} | docker login --username AWS --password-stdin {{Param.ECR_REGISTRY}}
+        docker pull {{Param.ECR_REGISTRY}}/{{Param.CINEMA4D_REPOSITORY}}:{{Param.CINEMA4D_TAG}}
+        
+        # Create a directory for the Cinema4D render
+        mkdir -p ./cinema4d_render
+        
+        # Pass through license environment variables from host
+        echo "Passing through license environment variables from host..."
+        
+        # Print out environment variables inside the container
+        echo "Printing container environment variables..."
+        docker run --rm \
+          -v "$(pwd)/cinema4d_render:/render" \
+          -w /render \
+          -e FLEXLM_TIMEOUT \
+          -e ADSKFLEX_LICENSE_FILE \
+          -e foundry_LICENSE \
+          -e PIXAR_LICENSE_FILE \
+          -e g_licenseServerRLM \
+          -e redshift_LICENSE \
+          -e SESI_LMHOST \
+          -e VRAY_AUTH_CLIENT_FILE_PATH \
+          -e VRAY_AUTH_CLIENT_SETTINGS \
+          {{Param.ECR_REGISTRY}}/{{Param.CINEMA4D_REPOSITORY}}:{{Param.CINEMA4D_TAG}} \
+          env | sort
+        
+        # Note: Cinema4D scene file is already included in the Docker container at /rendering/simple_cube_2025.c4d
+        
+        echo "Before running the render...."
+        docker run --rm \
+          -v "$(pwd)/cinema4d_render:/render" \
+          -w /render \
+          {{Param.ECR_REGISTRY}}/{{Param.CINEMA4D_REPOSITORY}}:{{Param.CINEMA4D_TAG}} \
+          ls -la /render/
+
+        # Run Cinema4D in the Docker container to render the scene
+        echo "Rendering the Cinema4D scene..."
+        docker run --rm \
+          --network host \
+          --ulimit stack=52428800 \
+          --gpus all \
+          --runtime nvidia \
+          --device /dev/nvidia0 \
+          --device /dev/nvidiactl \
+          --device /dev/nvidia-modeset \
+          --device /dev/nvidia-uvm \
+          -v "$(pwd)/cinema4d_render:/render" \
+          -w /render \
+          -e FLEXLM_TIMEOUT \
+          -e ADSKFLEX_LICENSE_FILE \
+          -e foundry_LICENSE \
+          -e PIXAR_LICENSE_FILE \
+          -e g_licenseServerRLM \
+          -e redshift_LICENSE \
+          -e SESI_LMHOST \
+          -e VRAY_AUTH_CLIENT_FILE_PATH \
+          -e VRAY_AUTH_CLIENT_SETTINGS \
+          {{Param.ECR_REGISTRY}}/{{Param.CINEMA4D_REPOSITORY}}:{{Param.CINEMA4D_TAG}} \
+          bash -c "
+            echo 'Setting up Cinema4D environment...'
+            export FLEXLM_TIMEOUT=3000000
+            # Setup Cinema4D environment variables directly
+            C4D_BASE=/opt/maxon/cinema4dr2025.303
+            if [ -f \"\$C4D_BASE/bin/setup_c4d_env\" ]; then
+              cd \$C4D_BASE/bin
+              source ./setup_c4d_env
+            fi
+            export LC_NUMERIC=en_US.UTF-8
+            cd \$C4D_BASE/bin
+            echo 'Displaying license environment variables:'
+            echo \"Autodesk License endpoint: \$ADSKFLEX_LICENSE_FILE\"
+            echo \"Autodesk Timeout set to: \$FLEXLM_TIMEOUT\"
+            echo \"Foundry License endpoint: \$foundry_LICENSE\"
+            echo \"Renderman License endpoint: \$PIXAR_LICENSE_FILE\"
+            echo \"C4D License endpoint: \$g_licenseServerRLM\"
+            echo \"Redshift/Red Giant License endpoint: \$redshift_LICENSE\"
+            echo \"SideFX License endpoint: \$SESI_LMHOST\"
+            echo \"Vray Auth client file path set to: \$VRAY_AUTH_CLIENT_FILE_PATH\"
+            echo \"Vray License endpoint: \$VRAY_AUTH_CLIENT_SETTINGS\"
+            echo 'Displaying Cinema4D environment variables:'
+            echo \"C4D_BASE: \$C4D_BASE\"
+            echo \"LD_LIBRARY_PATH: \$LD_LIBRARY_PATH\"
+            echo \"PATH: \$PATH\"
+            echo \"LC_NUMERIC: \$LC_NUMERIC\"
+            echo \"PYTHONPATH: \$PYTHONPATH\"
+            echo 'Cinema4D environment ready. Starting render...'
+            ./Commandline -redshift-gpu 0 -render /rendering/substance_cube/SubstanceMaterialCube.c4d -oimage /render/out.jpg -oformat jpg -frame 1
+          "
+        
+        echo "Checking container output folder...."
+        docker run --rm \
+          -v "$(pwd)/cinema4d_render:/render" \
+          -w /render \
+          {{Param.ECR_REGISTRY}}/{{Param.CINEMA4D_REPOSITORY}}:{{Param.CINEMA4D_TAG}} \
+          ls -la /render/
+        
+        echo "Checking output folder...."
+        ls -la $(pwd)/cinema4d_render
+        
+        # Cleanup Docker containers and images
+        echo "Cleaning up Docker resources..."
+        # Remove all stopped containers
+        docker container prune -f
+        # Remove dangling images (images with no tags)
+        docker image prune -f
+        
+        echo "Docker cleanup complete."
+        
+        # Check if any output files were created (Cinema4D typically creates images with various extensions)
+        OUTPUT_FILES=$(find ./cinema4d_render -name "*.png" -o -name "*.jpg" -o -name "*.jpeg" -o -name "*.tiff" -o -name "*.exr" | head -1)
+        if [ -n "$OUTPUT_FILES" ]; then
+          echo "Rendering complete. Output files found in ./cinema4d_render/"
+          # Copy the first output file to job results directory
+          OUTPUT_FILE=$(basename "$OUTPUT_FILES")
+          cp "$OUTPUT_FILES" ./
+          echo "Output copied to job results directory: $OUTPUT_FILE"
+          
+          # Upload the output file to S3
+          TIMESTAMP=$(date +%Y%m%d-%H%M%S)
+          echo "Uploading $OUTPUT_FILE to S3 bucket adeadlineja at path dockerout/cinema4d-${TIMESTAMP}-${OUTPUT_FILE}"
+          aws s3 cp "./$OUTPUT_FILE" "s3://adeadlineja/dockerout/cinema4d-${TIMESTAMP}-${OUTPUT_FILE}"
+          if [ $? -eq 0 ]; then
+            echo "Successfully uploaded to S3"
+          else
+            echo "Failed to upload to S3"
+          fi
+        else
+          echo "Error: Rendering failed. No output files were created."
+          exit 1
+        fi
+- name: SimpleCubeRender
+  script:
+    actions:
+      onRun:
+        command: bash
+        args: ['{{Task.File.Run}}']
+    embeddedFiles:
+    - name: Run
+      type: TEXT
+      data: |
+        #!/bin/bash
+        set -e  # Exit on error
+        
+        echo "Starting simple_cube_2025.c4d render..."
+        echo "Current user: $(whoami)"
+        echo "Current directory: $(pwd)"
+        
+        # Login to ECR and pull the latest Cinema4D image
+        echo "Logging in to Amazon ECR and pulling the latest Cinema4D image..."
+        aws ecr get-login-password --region {{Param.AWS_REGION}} | docker login --username AWS --password-stdin {{Param.ECR_REGISTRY}}
+        docker pull {{Param.ECR_REGISTRY}}/{{Param.CINEMA4D_REPOSITORY}}:{{Param.CINEMA4D_TAG}}
+        
+        # Create a directory for the Cinema4D render
+        mkdir -p ./cinema4d_render_cube
+        
+        echo "Before running the render...."
+        docker run --rm \
+          -v "$(pwd)/cinema4d_render_cube:/render" \
+          -w /render \
+          {{Param.ECR_REGISTRY}}/{{Param.CINEMA4D_REPOSITORY}}:{{Param.CINEMA4D_TAG}} \
+          ls -la /render/
+
+        # Run Cinema4D in the Docker container to render simple_cube_2025.c4d
+        echo "Rendering simple_cube_2025.c4d..."
+        docker run --rm \
+          --network host \
+          --ulimit stack=52428800 \
+          --gpus all \
+          --runtime nvidia \
+          --device /dev/nvidia0 \
+          --device /dev/nvidiactl \
+          --device /dev/nvidia-modeset \
+          --device /dev/nvidia-uvm \
+          -v "$(pwd)/cinema4d_render_cube:/render" \
+          -w /render \
+          -e FLEXLM_TIMEOUT \
+          -e ADSKFLEX_LICENSE_FILE \
+          -e foundry_LICENSE \
+          -e PIXAR_LICENSE_FILE \
+          -e g_licenseServerRLM \
+          -e redshift_LICENSE \
+          -e SESI_LMHOST \
+          -e VRAY_AUTH_CLIENT_FILE_PATH \
+          -e VRAY_AUTH_CLIENT_SETTINGS \
+          {{Param.ECR_REGISTRY}}/{{Param.CINEMA4D_REPOSITORY}}:{{Param.CINEMA4D_TAG}} \
+          bash -c "
+            echo 'Setting up Cinema4D environment...'
+            export FLEXLM_TIMEOUT=3000000
+            # Setup Cinema4D environment variables directly
+            C4D_BASE=/opt/maxon/cinema4dr2025.303
+            if [ -f \"\$C4D_BASE/bin/setup_c4d_env\" ]; then
+              cd \$C4D_BASE/bin
+              source ./setup_c4d_env
+            fi
+            export LC_NUMERIC=en_US.UTF-8
+            cd \$C4D_BASE/bin
+            echo 'Displaying license environment variables:'
+            echo \"Autodesk License endpoint: \$ADSKFLEX_LICENSE_FILE\"
+            echo \"Autodesk Timeout set to: \$FLEXLM_TIMEOUT\"
+            echo \"Foundry License endpoint: \$foundry_LICENSE\"
+            echo \"Renderman License endpoint: \$PIXAR_LICENSE_FILE\"
+            echo \"C4D License endpoint: \$g_licenseServerRLM\"
+            echo \"Redshift/Red Giant License endpoint: \$redshift_LICENSE\"
+            echo \"SideFX License endpoint: \$SESI_LMHOST\"
+            echo \"Vray Auth client file path set to: \$VRAY_AUTH_CLIENT_FILE_PATH\"
+            echo \"Vray License endpoint: \$VRAY_AUTH_CLIENT_SETTINGS\"
+            echo 'Displaying Cinema4D environment variables:'
+            echo \"C4D_BASE: \$C4D_BASE\"
+            echo \"LD_LIBRARY_PATH: \$LD_LIBRARY_PATH\"
+            echo \"PATH: \$PATH\"
+            echo \"LC_NUMERIC: \$LC_NUMERIC\"
+            echo \"PYTHONPATH: \$PYTHONPATH\"
+            echo 'Cinema4D environment ready. Starting render...'
+            ./Commandline -render /rendering/simple_cube_2025.c4d -oimage /render/simple_cube_out.jpg -oformat jpg -frame 1
+          "
+        
+        echo "Checking container output folder...."
+        docker run --rm \
+          -v "$(pwd)/cinema4d_render_cube:/render" \
+          -w /render \
+          {{Param.ECR_REGISTRY}}/{{Param.CINEMA4D_REPOSITORY}}:{{Param.CINEMA4D_TAG}} \
+          ls -la /render/
+        
+        echo "Checking output folder...."
+        ls -la $(pwd)/cinema4d_render_cube
+        
+        # Cleanup Docker containers and images
+        echo "Cleaning up Docker resources..."
+        docker container prune -f
+        docker image prune -f
+        
+        echo "Docker cleanup complete."
+        
+        # Check if any output files were created
+        OUTPUT_FILES=$(find ./cinema4d_render_cube -name "*.png" -o -name "*.jpg" -o -name "*.jpeg" -o -name "*.tiff" -o -name "*.exr" | head -1)
+        if [ -n "$OUTPUT_FILES" ]; then
+          echo "Rendering complete. Output files found in ./cinema4d_render_cube/"
+          OUTPUT_FILE=$(basename "$OUTPUT_FILES")
+          cp "$OUTPUT_FILES" ./
+          echo "Output copied to job results directory: $OUTPUT_FILE"
+          
+          # Upload the output file to S3
+          TIMESTAMP=$(date +%Y%m%d-%H%M%S)
+          echo "Uploading $OUTPUT_FILE to S3 bucket adeadlineja at path dockerout/simple_cube-${TIMESTAMP}-${OUTPUT_FILE}"
+          aws s3 cp "./$OUTPUT_FILE" "s3://adeadlineja/dockerout/simple_cube-${TIMESTAMP}-${OUTPUT_FILE}"
+          if [ $? -eq 0 ]; then
+            echo "Successfully uploaded to S3"
+          else
+            echo "Failed to upload to S3"
+          fi
+        else
+          echo "Error: Rendering failed. No output files were created."
+          exit 1
+        fi
+
+- name: NvidiaSmiTest
+  script:
+    actions:
+      onRun:
+        command: bash
+        args: ['{{Task.File.Run}}']
+    embeddedFiles:
+    - name: Run
+      type: TEXT
+      data: |
+        #!/bin/bash
+        set -e  # Exit on error
+        
+        echo "Running nvidia-smi test..."
+        echo "Current user: $(whoami)"
+        echo "Current directory: $(pwd)"
+        
+        # Login to ECR and pull the latest Cinema4D image
+        echo "Logging in to Amazon ECR and pulling the latest Cinema4D image..."
+        aws ecr get-login-password --region {{Param.AWS_REGION}} | docker login --username AWS --password-stdin {{Param.ECR_REGISTRY}}
+        docker pull {{Param.ECR_REGISTRY}}/{{Param.CINEMA4D_REPOSITORY}}:{{Param.CINEMA4D_TAG}}
+        
+        # Run nvidia-smi in the Docker container
+        echo "Running nvidia-smi..."
+        docker run --rm \
+          --network host \
+          --ulimit stack=52428800 \
+          --gpus all \
+          --runtime nvidia \
+          --device /dev/nvidia0 \
+          --device /dev/nvidiactl \
+          --device /dev/nvidia-modeset \
+          --device /dev/nvidia-uvm \
+          {{Param.ECR_REGISTRY}}/{{Param.CINEMA4D_REPOSITORY}}:{{Param.CINEMA4D_TAG}} \
+          nvidia-smi
+        
+        echo "nvidia-smi test complete."
