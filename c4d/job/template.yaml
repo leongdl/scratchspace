@@ -254,7 +254,7 @@ steps:
             echo \"LC_NUMERIC: \$LC_NUMERIC\"
             echo \"PYTHONPATH: \$PYTHONPATH\"
             echo 'Cinema4D environment ready. Starting render...'
-            ./Commandline -render /rendering/simple_cube_2025.c4d -oimage /render/simple_cube_out.jpg -oformat jpg -frame 1
+            ./Commandline -redshift-gpu 0 -render /rendering/simple_cube_2025.c4d -oimage /render/simple_cube_out.jpg -oformat jpg -frame 1
           "
         
         echo "Checking container output folder...."
@@ -286,6 +286,131 @@ steps:
           TIMESTAMP=$(date +%Y%m%d-%H%M%S)
           echo "Uploading $OUTPUT_FILE to S3 bucket adeadlineja at path dockerout/simple_cube-${TIMESTAMP}-${OUTPUT_FILE}"
           aws s3 cp "./$OUTPUT_FILE" "s3://adeadlineja/dockerout/simple_cube-${TIMESTAMP}-${OUTPUT_FILE}"
+          if [ $? -eq 0 ]; then
+            echo "Successfully uploaded to S3"
+          else
+            echo "Failed to upload to S3"
+          fi
+        else
+          echo "Error: Rendering failed. No output files were created."
+          exit 1
+        fi
+
+- name: MacbookRender
+  script:
+    actions:
+      onRun:
+        command: bash
+        args: ['{{Task.File.Run}}']
+    embeddedFiles:
+    - name: Run
+      type: TEXT
+      data: |
+        #!/bin/bash
+        set -e  # Exit on error
+        
+        echo "Starting macbook.c4d render..."
+        echo "Current user: $(whoami)"
+        echo "Current directory: $(pwd)"
+        
+        # Login to ECR and pull the latest Cinema4D image
+        echo "Logging in to Amazon ECR and pulling the latest Cinema4D image..."
+        aws ecr get-login-password --region {{Param.AWS_REGION}} | docker login --username AWS --password-stdin {{Param.ECR_REGISTRY}}
+        docker pull {{Param.ECR_REGISTRY}}/{{Param.CINEMA4D_REPOSITORY}}:{{Param.CINEMA4D_TAG}}
+        
+        # Create a directory for the Cinema4D render
+        mkdir -p ./cinema4d_render_macbook
+        
+        echo "Before running the render...."
+        docker run --rm \
+          -v "$(pwd)/cinema4d_render_macbook:/render" \
+          -w /render \
+          {{Param.ECR_REGISTRY}}/{{Param.CINEMA4D_REPOSITORY}}:{{Param.CINEMA4D_TAG}} \
+          ls -la /render/
+
+        # Run Cinema4D in the Docker container to render macbook.c4d
+        echo "Rendering macbook.c4d..."
+        docker run --rm \
+          --network host \
+          --ulimit stack=52428800 \
+          --gpus all \
+          --runtime nvidia \
+          --device /dev/nvidia0 \
+          --device /dev/nvidiactl \
+          --device /dev/nvidia-modeset \
+          --device /dev/nvidia-uvm \
+          -v "$(pwd)/cinema4d_render_macbook:/render" \
+          -w /render \
+          -e FLEXLM_TIMEOUT \
+          -e ADSKFLEX_LICENSE_FILE \
+          -e foundry_LICENSE \
+          -e PIXAR_LICENSE_FILE \
+          -e g_licenseServerRLM \
+          -e redshift_LICENSE \
+          -e SESI_LMHOST \
+          -e VRAY_AUTH_CLIENT_FILE_PATH \
+          -e VRAY_AUTH_CLIENT_SETTINGS \
+          {{Param.ECR_REGISTRY}}/{{Param.CINEMA4D_REPOSITORY}}:{{Param.CINEMA4D_TAG}} \
+          bash -c "
+            echo 'Setting up Cinema4D environment...'
+            export FLEXLM_TIMEOUT=3000000
+            # Setup Cinema4D environment variables directly
+            C4D_BASE=/opt/maxon/cinema4dr2025.303
+            if [ -f \"\$C4D_BASE/bin/setup_c4d_env\" ]; then
+              cd \$C4D_BASE/bin
+              source ./setup_c4d_env
+            fi
+            export LC_NUMERIC=en_US.UTF-8
+            cd \$C4D_BASE/bin
+            echo 'Displaying license environment variables:'
+            echo \"Autodesk License endpoint: \$ADSKFLEX_LICENSE_FILE\"
+            echo \"Autodesk Timeout set to: \$FLEXLM_TIMEOUT\"
+            echo \"Foundry License endpoint: \$foundry_LICENSE\"
+            echo \"Renderman License endpoint: \$PIXAR_LICENSE_FILE\"
+            echo \"C4D License endpoint: \$g_licenseServerRLM\"
+            echo \"Redshift/Red Giant License endpoint: \$redshift_LICENSE\"
+            echo \"SideFX License endpoint: \$SESI_LMHOST\"
+            echo \"Vray Auth client file path set to: \$VRAY_AUTH_CLIENT_FILE_PATH\"
+            echo \"Vray License endpoint: \$VRAY_AUTH_CLIENT_SETTINGS\"
+            echo 'Displaying Cinema4D environment variables:'
+            echo \"C4D_BASE: \$C4D_BASE\"
+            echo \"LD_LIBRARY_PATH: \$LD_LIBRARY_PATH\"
+            echo \"PATH: \$PATH\"
+            echo \"LC_NUMERIC: \$LC_NUMERIC\"
+            echo \"PYTHONPATH: \$PYTHONPATH\"
+            echo 'Cinema4D environment ready. Starting render...'
+            ./Commandline -redshift-gpu 0 -render /rendering/macbook.c4d -oimage /render/macbook_out.jpg -oformat jpg -frame 1
+          "
+        
+        echo "Checking container output folder...."
+        docker run --rm \
+          -v "$(pwd)/cinema4d_render_macbook:/render" \
+          -w /render \
+          {{Param.ECR_REGISTRY}}/{{Param.CINEMA4D_REPOSITORY}}:{{Param.CINEMA4D_TAG}} \
+          ls -la /render/
+        
+        echo "Checking output folder...."
+        ls -la $(pwd)/cinema4d_render_macbook
+        
+        # Cleanup Docker containers and images
+        echo "Cleaning up Docker resources..."
+        docker container prune -f
+        docker image prune -f
+        
+        echo "Docker cleanup complete."
+        
+        # Check if any output files were created
+        OUTPUT_FILES=$(find ./cinema4d_render_macbook -name "*.png" -o -name "*.jpg" -o -name "*.jpeg" -o -name "*.tiff" -o -name "*.exr" | head -1)
+        if [ -n "$OUTPUT_FILES" ]; then
+          echo "Rendering complete. Output files found in ./cinema4d_render_macbook/"
+          OUTPUT_FILE=$(basename "$OUTPUT_FILES")
+          cp "$OUTPUT_FILES" ./
+          echo "Output copied to job results directory: $OUTPUT_FILE"
+          
+          # Upload the output file to S3
+          TIMESTAMP=$(date +%Y%m%d-%H%M%S)
+          echo "Uploading $OUTPUT_FILE to S3 bucket adeadlineja at path dockerout/macbook-${TIMESTAMP}-${OUTPUT_FILE}"
+          aws s3 cp "./$OUTPUT_FILE" "s3://adeadlineja/dockerout/macbook-${TIMESTAMP}-${OUTPUT_FILE}"
           if [ $? -eq 0 ]; then
             echo "Successfully uploaded to S3"
           else

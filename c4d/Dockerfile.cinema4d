@@ -148,6 +148,7 @@ RUN mkdir -p /rendering
 COPY simple_cube_2025.c4d /rendering/
 COPY substance_cube.zip /tmp/
 RUN unzip /tmp/substance_cube.zip -d /rendering && rm /tmp/substance_cube.zip
+COPY macbook.c4d /rendering/
 
 # Set default command
 CMD ["/bin/bash"]
