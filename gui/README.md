@@ -1,0 +1,1 @@
+Goal: I want to create a Rocky or Alma linux container with desktop GUI that runs on Amazon Linux 2023 as the host.
