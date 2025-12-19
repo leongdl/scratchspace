@@ -1,0 +1,98 @@
+       Adds  the  specified  list of principals and list of resources to a re-
+       source share. Principals that already  have  access  to  this  resource
+       share  immediately  receive  access to the added resources. Newly added
+       principals immediately receive access to the resources shared  in  this
+       resource share.
+
+       See also: AWS API Documentation
+
+[1mSYNOPSIS[0m
+            associate-resource-share
+          --resource-share-arn <value>
+          [--resource-arns <value>]
+          [--principals <value>]
+          [--client-token <value>]
+          [--sources <value>]
+          [--cli-input-json | --cli-input-yaml]
+          [--generate-cli-skeleton <value>]
+          [--debug]
+          [--endpoint-url <value>]
+          [--no-verify-ssl]
+          [--no-paginate]
+          [--output <value>]
+          [--query <value>]
+          [--profile <value>]
+          [--region <value>]
+          [--version <value>]
+          [--color <value>]
+          [--no-sign-request]
+          [--ca-bundle <value>]
+          [--cli-read-timeout <value>]
+          [--cli-connect-timeout <value>]
+          [--cli-binary-format <value>]
+          [--no-cli-pager]
+          [--cli-auto-prompt]
+          [--no-cli-auto-prompt]
+--
+          you want to add principals or resources to.
+
+       [1m--resource-arns [22m(list)
+          Specifies a list of [4mAmazon[24m [4mResource[24m [4mNames[24m [4m(ARNs)[24m  of  the  resources
+          that  you  want  to  share. This can be [1mnull [22mif you want to add only
+          principals.
+
+          (string)
+
+       Syntax:
+
+          "string" "string" ...
+
+       [1m--principals [22m(list)
+          Specifies a list of principals to whom  you  want  to  the  resource
+          share. This can be [1mnull [22mif you want to add only resources.
+
+          What the principals can do with the resources in the share is deter-
+          mined by the RAM permissions that you associate  with  the  resource
+          share. See  AssociateResourceSharePermission .
+
+          You can include the following values:
+
+          +o An Amazon Web Services account ID, for example: [1m123456789012[0m
+
+          +o An [4mAmazon[24m [4mResource[24m [4mName[24m [4m(ARN)[24m of an organization in Organizations,
+            for  example:  [1morganizations::123456789012:organization/o-example-[0m
+            [1morgid[0m
+
+          +o An  ARN of an organizational unit (OU) in Organizations, for exam-
+            ple:     [1morganizations::123456789012:ou/o-exampleorgid/ou-example-[0m
+            [1mrootid-exampleouid123[0m
+
+          +o An  ARN  of an IAM role, for example: [1miam::123456789012:role/role-[0m
+            [1mname[0m
+
+          +o An ARN of an IAM user, for example: [1miam::123456789012user/username[0m
+
+--
+       [1m--sources [22m(list)
+          Specifies from which source accounts the service principal  has  ac-
+          cess to the resources in this resource share.
+
+          (string)
+
+       Syntax:
+
+          "string" "string" ...
+
+       [1m--cli-input-json  [22m|  [1m--cli-input-yaml [22m(string) Reads arguments from the
+       JSON string provided. The JSON string follows the  format  provided  by
+       [1m--generate-cli-skeleton[22m. If other arguments are provided on the command
+       line, those values will override the JSON-provided values.  It  is  not
+       possible to pass arbitrary binary values using a JSON-provided value as
+       the string will be taken literally. This may  not  be  specified  along
+       with [1m--cli-input-yaml[22m.
+
+       [1m--generate-cli-skeleton  [22m(string)  Prints  a  JSON skeleton to standard
+       output without sending an API request. If provided with no value or the
+       value [1minput[22m, prints a sample input JSON that can be used as an argument
+       for [1m--cli-input-json[22m. Similarly, if provided [1myaml-input [22mit will print a
+       sample  input  YAML that can be used with [1m--cli-input-yaml[22m. If provided

@@ -1,0 +1,92 @@
+specificationVersion: 'jobtemplate-2023-09'
+name: Rocky-VNC-Desktop-Simple
+parameterDefinitions:
+- name: Message
+  type: STRING
+  default: Starting Rocky Linux VNC Desktop (Simple Mode)
+- name: ECR_REGISTRY
+  type: STRING
+  default: 224071664257.dkr.ecr.us-west-2.amazonaws.com
+- name: VNC_REPOSITORY
+  type: STRING
+  default: sqex2
+- name: VNC_TAG
+  type: STRING
+  default: rocky-vnc
+- name: AWS_REGION
+  type: STRING
+  default: us-west-2
+- name: SESSION_DURATION
+  type: INT
+  description: "How long to keep the VNC session alive (seconds)"
+  default: 3600
+steps:
+- name: StartVNCDesktop
+  script:
+    actions:
+      onRun:
+        command: bash
+        args: ['{{Task.File.Run}}']
+    embeddedFiles:
+    - name: Run
+      type: TEXT
+      data: |
+        #!/bin/bash
+        set -e
+        
+        echo '{{Param.Message}}'
+        echo "=============================================="
+        echo "Starting Rocky Linux VNC Desktop (Simple)"
+        echo "=============================================="
+        echo "Current user: $(whoami)"
+        echo "Hostname: $(hostname)"
+        echo "Private IP: $(hostname -I | awk '{print $1}')"
+        echo ""
+        
+        # Login to ECR and pull the VNC image
+        echo "Logging in to Amazon ECR..."
+        aws ecr get-login-password --region {{Param.AWS_REGION}} | docker login --username AWS --password-stdin {{Param.ECR_REGISTRY}}
+        
+        echo "Pulling VNC container image..."
+        docker pull {{Param.ECR_REGISTRY}}/{{Param.VNC_REPOSITORY}}:{{Param.VNC_TAG}}
+        
+        # Start the VNC container with host networking
+        echo "Starting VNC container with --network host..."
+        docker run -d \
+          --network host \
+          --name rocky-vnc-desktop \
+          {{Param.ECR_REGISTRY}}/{{Param.VNC_REPOSITORY}}:{{Param.VNC_TAG}}
+        
+        # Wait for VNC to be ready
+        echo "Waiting for noVNC to start..."
+        for i in {1..30}; do
+          if nc -z localhost 6080 2>/dev/null; then
+            echo "noVNC is ready!"
+            break
+          fi
+          sleep 2
+        done
+        
+        WORKER_IP=$(hostname -I | awk '{print $1}')
+        echo ""
+        echo "=============================================="
+        echo "VNC Desktop is running!"
+        echo "Worker IP: $WORKER_IP"
+        echo "noVNC URL: http://$WORKER_IP:6080/vnc.html"
+        echo "VNC Password: password"
+        echo "=============================================="
+        echo ""
+        echo "To connect, you need network access to this worker."
+        echo "Session will run for {{Param.SESSION_DURATION}} seconds."
+        echo ""
+        
+        # Keep alive
+        sleep {{Param.SESSION_DURATION}}
+        
+        # Cleanup
+        echo "Session ended. Cleaning up..."
+        docker stop rocky-vnc-desktop || true
+        docker rm rocky-vnc-desktop || true
+        docker container prune -f
+        docker image prune -f
+        echo "Done."

@@ -1,0 +1,11 @@
+# SSH keys
+job/vnc_tunnel_key
+job/vnc_tunnel_key.pub
+
+# Credentials
+scripts/creds.sh
+scripts/creds_output.txt
+
+# Temp files
+*.tmp
+/tmp/

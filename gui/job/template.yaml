@@ -1,0 +1,204 @@
+specificationVersion: 'jobtemplate-2023-09'
+name: Rocky-VNC-Desktop
+parameterDefinitions:
+- name: Message
+  type: STRING
+  default: Starting Rocky Linux VNC Desktop
+- name: ECR_REGISTRY
+  type: STRING
+  default: 224071664257.dkr.ecr.us-west-2.amazonaws.com
+- name: VNC_REPOSITORY
+  type: STRING
+  default: sqex2
+- name: VNC_TAG
+  type: STRING
+  default: rocky-vnc
+- name: AWS_REGION
+  type: STRING
+  default: us-west-2
+- name: EC2_PROXY_HOST
+  type: STRING
+  description: "VPC Lattice endpoint for the EC2 proxy instance"
+  default: "rcfg-011bc61e9efbfbd1e.resource-endpoints.deadline.us-west-2.amazonaws.com"
+- name: EC2_PROXY_USER
+  type: STRING
+  description: "SSH user on the EC2 proxy instance"
+  default: "ssm-user"
+- name: SESSION_DURATION
+  type: INT
+  description: "How long to keep the VNC session alive (seconds)"
+  default: 3600
+- name: SSHPrivateKey
+  type: PATH
+  objectType: FILE
+  dataFlow: IN
+  userInterface:
+    control: CHOOSE_INPUT_FILE
+    label: SSH Private Key
+    groupLabel: Connection Settings
+    fileFilters:
+    - label: SSH Key Files
+      patterns: ["*"]
+  default: "./vnc_tunnel_key"
+  description: >
+    SSH private key for the reverse tunnel to EC2 proxy.
+    The corresponding public key must be in EC2's authorized_keys.
+steps:
+- name: StartVNCDesktop
+  script:
+    actions:
+      onRun:
+        command: bash
+        args: ['{{Task.File.Run}}']
+    embeddedFiles:
+    - name: Run
+      type: TEXT
+      data: |
+        #!/bin/bash
+        set -e
+        
+        echo '{{Param.Message}}'
+        echo "=============================================="
+        echo "Starting Rocky Linux VNC Desktop"
+        echo "=============================================="
+        echo "Current user: $(whoami)"
+        echo "Current directory: $(pwd)"
+        echo "Hostname: $(hostname)"
+        echo "Session duration: {{Param.SESSION_DURATION}} seconds"
+        echo ""
+        
+        # Cleanup any orphaned containers from previous runs
+        echo "Cleaning up orphaned containers..."
+        docker stop rocky-vnc-desktop 2>/dev/null || true
+        docker rm rocky-vnc-desktop 2>/dev/null || true
+        docker container prune -f
+        
+        # Setup SSH key from job attachment
+        echo "Setting up SSH key..."
+        mkdir -p ~/.ssh
+        cp "{{Param.SSHPrivateKey}}" ~/.ssh/vnc_tunnel_key
+        chmod 600 ~/.ssh/vnc_tunnel_key
+        
+        # Login to ECR and pull the VNC image
+        echo "Logging in to Amazon ECR..."
+        aws ecr get-login-password --region {{Param.AWS_REGION}} | docker login --username AWS --password-stdin {{Param.ECR_REGISTRY}}
+        
+        echo "Pulling VNC container image..."
+        docker pull {{Param.ECR_REGISTRY}}/{{Param.VNC_REPOSITORY}}:{{Param.VNC_TAG}}
+        
+        # Start the VNC container with host networking
+        echo "Starting VNC container with --network host..."
+        CONTAINER_ID=$(docker run -d \
+          --network host \
+          --name rocky-vnc-desktop \
+          {{Param.ECR_REGISTRY}}/{{Param.VNC_REPOSITORY}}:{{Param.VNC_TAG}})
+        
+        echo "Container started: $CONTAINER_ID"
+        
+        # Wait for VNC to be ready
+        echo "Waiting for noVNC to start on port 6080..."
+        for i in {1..30}; do
+          if curl -s --max-time 2 http://localhost:6080/ > /dev/null 2>&1; then
+            echo "noVNC is ready!"
+            break
+          fi
+          echo "Waiting... ($i/30)"
+          echo "Docker containers:"
+          docker ps
+          echo "Container logs:"
+          docker logs rocky-vnc-desktop 2>&1 | tail -20
+          echo "---"
+          sleep 2
+        done
+        
+        # Verify VNC is running
+        if ! curl -s --max-time 2 http://localhost:6080/ > /dev/null 2>&1; then
+          echo "ERROR: noVNC failed to start"
+          echo "Checking if port 6080 is listening:"
+          ss -tlnp | grep 6080 || echo "Port 6080 not found"
+          echo "Docker logs:"
+          docker logs rocky-vnc-desktop
+          exit 1
+        fi
+        
+        echo ""
+        echo "=============================================="
+        echo "VNC Desktop is running on port 6080"
+        echo "=============================================="
+        echo ""
+        
+        # Setup reverse SSH tunnel to EC2 proxy
+        echo "Setting up reverse SSH tunnel to EC2 proxy..."
+        echo "EC2 Proxy: {{Param.EC2_PROXY_HOST}}"
+        
+        # Start reverse SSH tunnel using the attached key
+        # -R 6080:localhost:6080 = Forward EC2:6080 to Worker:6080
+        echo "Starting reverse SSH tunnel..."
+        ssh -i ~/.ssh/vnc_tunnel_key \
+            -R 6080:localhost:6080 \
+            -N \
+            -o StrictHostKeyChecking=no \
+            -o ServerAliveInterval=60 \
+            -o ServerAliveCountMax=3 \
+            -o ExitOnForwardFailure=yes \
+            {{Param.EC2_PROXY_USER}}@{{Param.EC2_PROXY_HOST}} &
+        
+        SSH_PID=$!
+        echo "Reverse SSH tunnel started with PID: $SSH_PID"
+        
+        # Keep the session alive
+        echo ""
+        echo "=============================================="
+        echo "VNC Desktop session active"
+        echo "Access via: http://localhost:6080/vnc.html (from Mac)"
+        echo "VNC Password: password"
+        echo "Session will end in {{Param.SESSION_DURATION}} seconds"
+        echo "=============================================="
+        
+        # Monitor the session
+        ELAPSED=0
+        INTERVAL=60
+        while [ $ELAPSED -lt {{Param.SESSION_DURATION}} ]; do
+          sleep $INTERVAL
+          ELAPSED=$((ELAPSED + INTERVAL))
+          REMAINING=$(({{Param.SESSION_DURATION}} - ELAPSED))
+          echo "[$(date)] Session active. Time remaining: $REMAINING seconds"
+          echo "Docker containers:"
+          docker ps
+          
+          # Check if container is still running
+          if ! docker ps | grep -q rocky-vnc-desktop; then
+            echo "WARNING: VNC container stopped unexpectedly"
+            break
+          fi
+          
+          # Check if SSH tunnel is still running
+          if ! kill -0 $SSH_PID 2>/dev/null; then
+            echo "WARNING: SSH tunnel died, restarting..."
+            ssh -i ~/.ssh/vnc_tunnel_key \
+                -R 6080:localhost:6080 \
+                -N \
+                -o StrictHostKeyChecking=no \
+                -o ServerAliveInterval=60 \
+                -o ServerAliveCountMax=3 \
+                {{Param.EC2_PROXY_USER}}@{{Param.EC2_PROXY_HOST}} &
+            SSH_PID=$!
+          fi
+        done
+        
+        echo ""
+        echo "Session duration reached. Cleaning up..."
+        
+        # Cleanup
+        echo "Stopping SSH tunnel..."
+        kill $SSH_PID 2>/dev/null || true
+        
+        echo "Stopping VNC container..."
+        docker stop rocky-vnc-desktop || true
+        docker rm rocky-vnc-desktop || true
+        
+        echo "Cleaning up Docker resources..."
+        docker container prune -f
+        docker image prune -f
+        
+        echo "VNC Desktop session ended."

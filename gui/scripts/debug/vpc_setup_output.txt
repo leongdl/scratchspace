@@ -1,0 +1,89 @@
+/home/ssm-user/.local/lib/python3.9/site-packages/boto3/compat.py:89: PythonDeprecationWarning: Boto3 will no longer support Python 3.9 starting April 29, 2026. To continue receiving service updates, bug fixes, and security updates please upgrade to Python 3.10 or later. More information can be found here: https://aws.amazon.com/blogs/developer/python-support-policy-updates-for-aws-sdks-and-tools/
+  warnings.warn(warning, PythonDeprecationWarning)
+VPC Lattice Setup for Deadline Cloud SMF
+==================================================
+This script is IDEMPOTENT - safe to run multiple times
+
+=== Checking Security Group ===
+Security Group: sg-09d332611399f751a (NetworkStack-dev-BealineClientSoftwareReleaseTesting-224071664257-us-west-2-internetaccesssgF31E5243-JS1CYSeIJUyW)
+VPC: vpc-0e8e227f1094b2f9a
+
+Inbound Rules:
+  tcp 22-22 from ['10.0.0.0/16', 'prefix:pl-0721453c7ac4ec009']
+  tcp 6080-6080 from ['10.0.0.0/16', 'prefix:pl-0721453c7ac4ec009']
+  tcp 443-443 from ['sg:sg-0ad2ba5a045f04765']
+  tcp 6688-6688 from ['10.0.0.0/16', 'prefix:pl-0721453c7ac4ec009']
+
+=== Checking VPC and Subnet ===
+VPC: vpc-0e8e227f1094b2f9a
+  CIDR: 10.0.0.0/16
+  State: available
+
+Subnet: subnet-0f145f86a08d5f76e
+  CIDR: 10.0.0.0/24
+  AZ: us-west-2a
+  Available IPs: 236
+
+EC2 Instance i-0dafdfc660885e366 private IP: 10.0.0.65
+
+=== Existing VPC Lattice Resources ===
+
+✓ Resource Gateway found: vnc-proxy-gateway (rgw-01dbabc46acd0ba1a)
+  Status: ACTIVE
+  ARN: arn:aws:vpc-lattice:us-west-2:224071664257:resourcegateway/rgw-01dbabc46acd0ba1a
+
+✓ Resource Configuration found: vnc-proxy-config (rcfg-011bc61e9efbfbd1e)
+  Status: ACTIVE
+  ARN: arn:aws:vpc-lattice:us-west-2:224071664257:resourceconfiguration/rcfg-011bc61e9efbfbd1e
+
+○ RAM Share 'deadline-vnc-share' not found
+
+=== Adding Security Group Rules (Idempotent) ===
+Found VPC Lattice prefix list: pl-0721453c7ac4ec009
+Using VPC CIDR: 10.0.0.0/16
+○ Rule for port 22 from 10.0.0.0/16 already exists (skipped)
+○ Rule for port 22 from VPC Lattice already exists (skipped)
+○ Rule for port 6080 from 10.0.0.0/16 already exists (skipped)
+○ Rule for port 6080 from VPC Lattice already exists (skipped)
+○ Rule for port 6688 from 10.0.0.0/16 already exists (skipped)
+○ Rule for port 6688 from VPC Lattice already exists (skipped)
+
+=== Updated Security Group ===
+
+=== Checking Security Group ===
+Security Group: sg-09d332611399f751a (NetworkStack-dev-BealineClientSoftwareReleaseTesting-224071664257-us-west-2-internetaccesssgF31E5243-JS1CYSeIJUyW)
+VPC: vpc-0e8e227f1094b2f9a
+
+Inbound Rules:
+  tcp 22-22 from ['10.0.0.0/16', 'prefix:pl-0721453c7ac4ec009']
+  tcp 6080-6080 from ['10.0.0.0/16', 'prefix:pl-0721453c7ac4ec009']
+  tcp 443-443 from ['sg:sg-0ad2ba5a045f04765']
+  tcp 6688-6688 from ['10.0.0.0/16', 'prefix:pl-0721453c7ac4ec009']
+
+=== Creating Resource Gateway (Idempotent) ===
+○ Resource Gateway 'vnc-proxy-gateway' already exists (skipped)
+  ID: rgw-01dbabc46acd0ba1a
+  ARN: arn:aws:vpc-lattice:us-west-2:224071664257:resourcegateway/rgw-01dbabc46acd0ba1a
+
+=== Creating Resource Configuration (Idempotent) ===
+○ Resource Configuration 'vnc-proxy-config' already exists (skipped)
+  ID: rcfg-011bc61e9efbfbd1e
+  ARN: arn:aws:vpc-lattice:us-west-2:224071664257:resourceconfiguration/rcfg-011bc61e9efbfbd1e
+
+=== Creating RAM Resource Share (Idempotent) ===
+Creating RAM share 'deadline-vnc-share'...
+  Associating Deadline Cloud service principal...
+Traceback (most recent call last):
+  File "/home/ssm-user/docker/scratchspace/gui/scripts/setup_vpc_lattice.py", line 503, in <module>
+    main()
+  File "/home/ssm-user/docker/scratchspace/gui/scripts/setup_vpc_lattice.py", line 488, in main
+    share = create_ram_share(ram, resource_config_arn)
+  File "/home/ssm-user/docker/scratchspace/gui/scripts/setup_vpc_lattice.py", line 348, in create_ram_share
+    ram.associate_resource_share(
+  File "/home/ssm-user/.local/lib/python3.9/site-packages/botocore/client.py", line 602, in _api_call
+    return self._make_api_call(operation_name, kwargs)
+  File "/home/ssm-user/.local/lib/python3.9/site-packages/botocore/context.py", line 123, in wrapper
+    return func(*args, **kwargs)
+  File "/home/ssm-user/.local/lib/python3.9/site-packages/botocore/client.py", line 1078, in _make_api_call
+    raise error_class(parsed_response, operation_name)
+botocore.errorfactory.InvalidParameterException: An error occurred (InvalidParameterException) when calling the AssociateResourceShare operation: Cannot share with service principal without specifying a source

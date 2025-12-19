@@ -1,0 +1,11 @@
+{
+    "resourceShareAssociations": [
+        {
+            "resourceShareArn": "arn:aws:ram:us-west-2:224071664257:resource-share/3cdab259-cc8d-40d5-86b9-fda0e62351d8",
+            "associatedEntity": "fleets.deadline.amazonaws.com",
+            "associationType": "PRINCIPAL",
+            "status": "ASSOCIATING",
+            "external": false
+        }
+    ]
+}

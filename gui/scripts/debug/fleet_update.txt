@@ -1,0 +1,4 @@
+
+Parameter validation failed:
+Missing required parameter in configuration.serviceManagedEc2: "instanceCapabilities"
+Missing required parameter in configuration.serviceManagedEc2: "instanceMarketOptions"

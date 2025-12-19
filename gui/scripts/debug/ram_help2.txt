@@ -1,0 +1,100 @@
+
+          {
+              "resourceShareAssociations": [
+                  {
+                     "resourceShareArn": "arn:aws:ram:us-west-2:123456789012:resource-share/27d09b4b-5e12-41d1-a4f2-19dedEXAMPLE",
+                     "associatedEntity": "arn:aws:license-manager:us-west-2:123456789012:license-configuration:lic-36be0485f5ae379cc74cf8e92EXAMPLE",
+                     "associationType": "RESOURCE",
+                     "status": "ASSOCIATING",
+                     "external": false
+                  }
+              ]
+          }
+
+       [1mExample 2: To associate a principal with a resource share[0m
+
+       The following [1massociate-resource-share [22mexample grants  access  for  the
+       specified  resource  share  to  all accounts in the specified organiza-
+       tional unit.
+
+          aws ram associate-resource-share \
+              --resource-share-arn arn:aws:ram:us-west-2:123456789012:resource-share/27d09b4b-5e12-41d1-a4f2-19dedEXAMPLE \
+              --principals arn:aws:organizations::123456789012:ou/o-63bEXAMPLE/ou-46xi-rEXAMPLE
+
+       Output:
+
+          {
+              "resourceShareAssociations": [
+                  {
+                      "status": "ASSOCIATING",
+                      "associationType": "PRINCIPAL",
+                      "associatedEntity": "arn:aws:organizations::123456789012:ou/o-63bEXAMPLE/ou-46xi-rEXAMPLE",
+                      "external": false,
+                      "resourceShareArn": "arn:aws:ram:us-west-2:123456789012:resource-share/27d09b4b-5e12-41d1-a4f2-19dedEXAMPLE"
+                  }
+              ]
+          }
+
+[1mOUTPUT[0m
+       resourceShareAssociations -> (list)
+          An array of objects that contain information about the associations.
+
+          (structure)
+              Describes an association between a resource share and  either  a
+              principal or a resource.
+
+              resourceShareArn -> (string)
+                 The [4mAmazon[24m [4mResource[24m [4mName[24m [4m(ARN)[24m of the resource share.
+
+              resourceShareName -> (string)
+                 The name of the resource share.
+
+              associatedEntity -> (string)
+                 The associated entity. This can be either of the following:
+
+                 +o For  a  resource  association,  this is the [4mAmazon[24m [4mResource[0m
+                   [4mName[24m [4m(ARN)[24m of the resource.
+
+                 +o For principal associations, this is one of the following:
+
+                   +o The ID of an Amazon Web Services account
+
+                   +o The [4mAmazon[24m [4mResource[24m [4mName[24m [4m(ARN)[24m of an organization in  Or-
+                     ganizations
+
+                   +o The ARN of an organizational unit (OU) in Organizations
+
+                   +o The ARN of an IAM role
+
+                   +o The ARN of an IAM user
+
+              associationType -> (string)
+                 The type of entity included in this association.
+
+              status -> (string)
+                 The current status of the association.
+
+              statusMessage -> (string)
+                 A message about the status of the association.
+
+              creationTime -> (timestamp)
+                 The date and time when the association was created.
+
+              lastUpdatedTime -> (timestamp)
+                 The date and time when the association was last updated.
+
+              external -> (boolean)
+                 Indicates whether the principal belongs to the same organiza-
+                 tion in Organizations as the Amazon Web Services account that
+                 owns the resource share.
+
+       clientToken -> (string)
+          The idempotency identifier associated with this request. If you want
+          to repeat the same operation in an idempotent manner then  you  must
+          include  this  value  in  the  [1mclientToken [22mrequest parameter of that
+          later call. All other parameters must also have the same values that
+          you used in the first call.
+
+
+
+                                                    ASSOCIATE-RESOURCE-SHARE()

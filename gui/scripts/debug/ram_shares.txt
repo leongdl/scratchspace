@@ -1,0 +1,4 @@
+/home/ssm-user/.local/lib/python3.9/site-packages/boto3/compat.py:89: PythonDeprecationWarning: Boto3 will no longer support Python 3.9 starting April 29, 2026. To continue receiving service updates, bug fixes, and security updates please upgrade to Python 3.10 or later. More information can be found here: https://aws.amazon.com/blogs/developer/python-support-policy-updates-for-aws-sdks-and-tools/
+  warnings.warn(warning, PythonDeprecationWarning)
+deadline-vnc-share - ACTIVE - arn:aws:ram:us-west-2:224071664257:resource-share/3cdab259-cc8d-40d5-86b9-fda0e62351d8
+Test - ACTIVE - arn:aws:ram:us-west-2:224071664257:resource-share/7476df07-be75-46f1-ba85-68b572843eb3

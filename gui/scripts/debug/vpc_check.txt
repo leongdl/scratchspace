@@ -1,0 +1,49 @@
+/home/ssm-user/.local/lib/python3.9/site-packages/boto3/compat.py:89: PythonDeprecationWarning: Boto3 will no longer support Python 3.9 starting April 29, 2026. To continue receiving service updates, bug fixes, and security updates please upgrade to Python 3.10 or later. More information can be found here: https://aws.amazon.com/blogs/developer/python-support-policy-updates-for-aws-sdks-and-tools/
+  warnings.warn(warning, PythonDeprecationWarning)
+VPC Lattice Setup for Deadline Cloud SMF
+==================================================
+This script is IDEMPOTENT - safe to run multiple times
+
+=== Checking Security Group ===
+Security Group: sg-09d332611399f751a (NetworkStack-dev-BealineClientSoftwareReleaseTesting-224071664257-us-west-2-internetaccesssgF31E5243-JS1CYSeIJUyW)
+VPC: vpc-0e8e227f1094b2f9a
+
+Inbound Rules:
+  tcp 443-443 from ['sg:sg-0ad2ba5a045f04765']
+
+=== Checking VPC and Subnet ===
+VPC: vpc-0e8e227f1094b2f9a
+  CIDR: 10.0.0.0/16
+  State: available
+
+Subnet: subnet-0f145f86a08d5f76e
+  CIDR: 10.0.0.0/24
+  AZ: us-west-2a
+  Available IPs: 236
+
+EC2 Instance i-0dafdfc660885e366 private IP: 10.0.0.65
+
+=== Existing VPC Lattice Resources ===
+
+○ Resource Gateway 'vnc-proxy-gateway' not found
+
+○ Resource Configuration 'vnc-proxy-config' not found
+
+○ RAM Share 'deadline-vnc-share' not found
+
+============================================================
+SUMMARY
+============================================================
+
+============================================================
+USAGE
+============================================================
+
+Run modes:
+  python setup_vpc_lattice.py              # Check current state only
+  python setup_vpc_lattice.py --add-rules  # Add security group rules
+  python setup_vpc_lattice.py --create     # Create all VPC Lattice resources
+  python setup_vpc_lattice.py --full       # Add rules + create resources + update fleet
+
+All operations are IDEMPOTENT - safe to run multiple times.
+

@@ -1,0 +1,80 @@
+ASSOCIATE-RESOURCE-SHARE()                          ASSOCIATE-RESOURCE-SHARE()
+
+
+
+[1mNAME[0m
+       associate-resource-share -
+
+[1mDESCRIPTION[0m
+       Adds  the  specified  list of principals and list of resources to a re-
+       source share. Principals that already  have  access  to  this  resource
+       share  immediately  receive  access to the added resources. Newly added
+       principals immediately receive access to the resources shared  in  this
+       resource share.
+
+       See also: AWS API Documentation
+
+[1mSYNOPSIS[0m
+            associate-resource-share
+          --resource-share-arn <value>
+          [--resource-arns <value>]
+          [--principals <value>]
+          [--client-token <value>]
+          [--sources <value>]
+          [--cli-input-json | --cli-input-yaml]
+          [--generate-cli-skeleton <value>]
+          [--debug]
+          [--endpoint-url <value>]
+          [--no-verify-ssl]
+          [--no-paginate]
+          [--output <value>]
+          [--query <value>]
+          [--profile <value>]
+          [--region <value>]
+          [--version <value>]
+          [--color <value>]
+          [--no-sign-request]
+          [--ca-bundle <value>]
+          [--cli-read-timeout <value>]
+          [--cli-connect-timeout <value>]
+          [--cli-binary-format <value>]
+          [--no-cli-pager]
+          [--cli-auto-prompt]
+          [--no-cli-auto-prompt]
+
+[1mOPTIONS[0m
+       [1m--resource-share-arn [22m(string)
+          Specifies  the [4mAmazon[24m [4mResource[24m [4mName[24m [4m(ARN)[24m of the resource share that
+          you want to add principals or resources to.
+
+       [1m--resource-arns [22m(list)
+          Specifies a list of [4mAmazon[24m [4mResource[24m [4mNames[24m [4m(ARNs)[24m  of  the  resources
+          that  you  want  to  share. This can be [1mnull [22mif you want to add only
+          principals.
+
+          (string)
+
+       Syntax:
+
+          "string" "string" ...
+
+       [1m--principals [22m(list)
+          Specifies a list of principals to whom  you  want  to  the  resource
+          share. This can be [1mnull [22mif you want to add only resources.
+
+          What the principals can do with the resources in the share is deter-
+          mined by the RAM permissions that you associate  with  the  resource
+          share. See  AssociateResourceSharePermission .
+
+          You can include the following values:
+
+          +o An Amazon Web Services account ID, for example: [1m123456789012[0m
+
+          +o An [4mAmazon[24m [4mResource[24m [4mName[24m [4m(ARN)[24m of an organization in Organizations,
+            for  example:  [1morganizations::123456789012:organization/o-example-[0m
+            [1morgid[0m
+
+          +o An  ARN of an organizational unit (OU) in Organizations, for exam-
+            ple:     [1morganizations::123456789012:ou/o-exampleorgid/ou-example-[0m
+            [1mrootid-exampleouid123[0m
+
