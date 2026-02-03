@@ -158,7 +158,7 @@ steps:
         
         # Monitor the session
         ELAPSED=0
-        INTERVAL=60
+        INTERVAL=600
         while [ $ELAPSED -lt {{Param.SESSION_DURATION}} ]; do
           sleep $INTERVAL
           ELAPSED=$((ELAPSED + INTERVAL))
