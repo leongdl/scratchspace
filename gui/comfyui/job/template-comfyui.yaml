@@ -1,0 +1,86 @@
+specificationVersion: jobtemplate-2023-09
+name: ComfyUI Interactive Session
+description: Run ComfyUI on a Deadline worker with reverse tunnel access
+
+parameterDefinitions:
+  - name: SessionDuration
+    type: INT
+    default: 3600
+    description: Session duration in seconds
+
+  - name: EC2ProxyHost
+    type: STRING
+    default: "10.0.0.65"
+    description: EC2 proxy instance private IP
+
+  - name: EC2ProxyPort
+    type: INT
+    default: 6688
+    description: Remote port on EC2 proxy for reverse tunnel
+
+  - name: DockerImage
+    type: STRING
+    default: "224071664257.dkr.ecr.us-east-1.amazonaws.com/comfyui-sdxl:latest"
+    description: ComfyUI Docker image to use
+
+  - name: EnableManager
+    type: STRING
+    default: "false"
+    allowedValues: ["true", "false"]
+    description: Enable ComfyUI-Manager
+
+  - name: VRAMMode
+    type: STRING
+    default: "normal"
+    allowedValues: ["normal", "low", "high"]
+    description: VRAM optimization mode
+
+steps:
+  - name: ComfyUI
+    script:
+      actions:
+        onRun:
+          command: bash
+          args: ["{{Task.File.run}}"]
+      embeddedFiles:
+        - name: run
+          type: TEXT
+          data: |
+            #!/bin/bash
+            set -e
+
+            echo "=== Starting ComfyUI Session ==="
+            echo "Duration: {{Param.SessionDuration}} seconds"
+            echo "EC2 Proxy: {{Param.EC2ProxyHost}}:{{Param.EC2ProxyPort}}"
+            echo "Docker Image: {{Param.DockerImage}}"
+
+            # Set VRAM mode
+            VRAM_ENV=""
+            if [ "{{Param.VRAMMode}}" = "low" ]; then
+                VRAM_ENV="-e LOW_VRAM=true"
+            elif [ "{{Param.VRAMMode}}" = "high" ]; then
+                VRAM_ENV="-e HIGH_VRAM=true"
+            fi
+
+            # Run ComfyUI container
+            docker run --rm \
+                --gpus all \
+                --network host \
+                -e EC2_PROXY_HOST={{Param.EC2ProxyHost}} \
+                -e EC2_PROXY_PORT={{Param.EC2ProxyPort}} \
+                -e ENABLE_MANAGER={{Param.EnableManager}} \
+                ${VRAM_ENV} \
+                -v /opt/comfyui-models:/opt/comfyui/models \
+                -v /opt/comfyui-output:/opt/comfyui/output \
+                {{Param.DockerImage}} &
+
+            CONTAINER_PID=$!
+
+            # Keep session alive for specified duration
+            echo "Session will run for {{Param.SessionDuration}} seconds"
+            sleep {{Param.SessionDuration}}
+
+            echo "Session duration reached, stopping container"
+            kill ${CONTAINER_PID} 2>/dev/null || true
+
+            echo "=== ComfyUI Session Complete ==="

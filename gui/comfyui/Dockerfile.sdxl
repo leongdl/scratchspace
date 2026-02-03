@@ -1,0 +1,30 @@
+# ComfyUI with SDXL models pre-baked
+# Build: docker build -f Dockerfile.sdxl -t comfyui-sdxl:latest .
+
+FROM comfyui-rocky:latest
+
+USER root
+
+# Download SDXL base model
+RUN wget -q --show-progress -O /opt/comfyui/models/checkpoints/sd_xl_base_1.0.safetensors \
+    "https://huggingface.co/stabilityai/stable-diffusion-xl-base-1.0/resolve/main/sd_xl_base_1.0.safetensors"
+
+# Download SDXL refiner (optional, comment out to save space)
+RUN wget -q --show-progress -O /opt/comfyui/models/checkpoints/sd_xl_refiner_1.0.safetensors \
+    "https://huggingface.co/stabilityai/stable-diffusion-xl-refiner-1.0/resolve/main/sd_xl_refiner_1.0.safetensors"
+
+# Download SDXL VAE
+RUN wget -q --show-progress -O /opt/comfyui/models/vae/sdxl_vae.safetensors \
+    "https://huggingface.co/stabilityai/sdxl-vae/resolve/main/sdxl_vae.safetensors"
+
+# Download TAESD for fast previews
+RUN wget -q --show-progress -O /opt/comfyui/models/vae_approx/taesdxl_decoder.pth \
+    "https://github.com/madebyollin/taesd/raw/main/taesdxl_decoder.pth"
+
+# Set proper ownership
+RUN chown -R comfyui:comfyui /opt/comfyui/models
+
+USER comfyui
+
+# Enable TAESD previews by default
+ENV PREVIEW_METHOD=taesd

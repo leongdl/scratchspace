@@ -1,0 +1,204 @@
+specificationVersion: 'jobtemplate-2023-09'
+name: ComfyUI-SDXL-Session
+parameterDefinitions:
+- name: Message
+  type: STRING
+  default: Starting ComfyUI SDXL Session
+- name: ECR_REGISTRY
+  type: STRING
+  default: 224071664257.dkr.ecr.us-west-2.amazonaws.com
+- name: COMFYUI_REPOSITORY
+  type: STRING
+  default: comfyui-sdxl
+- name: COMFYUI_TAG
+  type: STRING
+  default: latest
+- name: AWS_REGION
+  type: STRING
+  default: us-west-2
+- name: EC2_PROXY_HOST
+  type: STRING
+  description: "VPC Lattice endpoint for the EC2 proxy instance"
+  default: "rcfg-011bc61e9efbfbd1e.resource-endpoints.deadline.us-west-2.amazonaws.com"
+- name: EC2_PROXY_USER
+  type: STRING
+  description: "SSH user on the EC2 proxy instance"
+  default: "ssm-user"
+- name: SESSION_DURATION
+  type: INT
+  description: "How long to keep the ComfyUI session alive (seconds)"
+  default: 3600
+- name: SSHPrivateKey
+  type: PATH
+  objectType: FILE
+  dataFlow: IN
+  userInterface:
+    control: CHOOSE_INPUT_FILE
+    label: SSH Private Key
+    groupLabel: Connection Settings
+    fileFilters:
+    - label: SSH Key Files
+      patterns: ["*"]
+  default: "./comfyui_tunnel_key"
+  description: >
+    SSH private key for the reverse tunnel to EC2 proxy.
+    The corresponding public key must be in EC2's authorized_keys.
+steps:
+- name: StartComfyUI
+  script:
+    actions:
+      onRun:
+        command: bash
+        args: ['{{Task.File.Run}}']
+    embeddedFiles:
+    - name: Run
+      type: TEXT
+      data: |
+        #!/bin/bash
+        set -e
+        
+        echo '{{Param.Message}}'
+        echo "=============================================="
+        echo "Starting ComfyUI SDXL Session"
+        echo "=============================================="
+        echo "Current user: $(whoami)"
+        echo "Current directory: $(pwd)"
+        echo "Hostname: $(hostname)"
+        echo "Session duration: {{Param.SESSION_DURATION}} seconds"
+        echo ""
+        
+        # Cleanup any orphaned containers from previous runs
+        echo "Cleaning up orphaned containers..."
+        docker stop comfyui-session 2>/dev/null || true
+        docker rm comfyui-session 2>/dev/null || true
+        docker container prune -f
+        
+        # Setup SSH key from job attachment
+        echo "Setting up SSH key..."
+        mkdir -p ~/.ssh
+        cp "{{Param.SSHPrivateKey}}" ~/.ssh/comfyui_tunnel_key
+        chmod 600 ~/.ssh/comfyui_tunnel_key
+        
+        # Login to ECR and pull the ComfyUI image
+        echo "Logging in to Amazon ECR..."
+        aws ecr get-login-password --region {{Param.AWS_REGION}} | docker login --username AWS --password-stdin {{Param.ECR_REGISTRY}}
+        
+        echo "Pulling ComfyUI container image..."
+        docker pull {{Param.ECR_REGISTRY}}/{{Param.COMFYUI_REPOSITORY}}:{{Param.COMFYUI_TAG}}
+        
+        # Start the ComfyUI container with host networking
+        echo "Starting ComfyUI container with --network host..."
+        CONTAINER_ID=$(docker run -d \
+          --runtime=nvidia \
+          -e NVIDIA_VISIBLE_DEVICES=all \
+          -e NVIDIA_DRIVER_CAPABILITIES=compute,utility \
+          --network host \
+          --name comfyui-session \
+          {{Param.ECR_REGISTRY}}/{{Param.COMFYUI_REPOSITORY}}:{{Param.COMFYUI_TAG}})
+        
+        echo "Container started: $CONTAINER_ID"
+        
+        # Wait for ComfyUI to be ready
+        echo "Waiting for ComfyUI to start on port 8188..."
+        for i in {1..60}; do
+          if curl -s --max-time 2 http://localhost:8188/ > /dev/null 2>&1; then
+            echo "ComfyUI is ready!"
+            break
+          fi
+          echo "Waiting... ($i/60)"
+          if [ $((i % 10)) -eq 0 ]; then
+            echo "Container logs:"
+            docker logs comfyui-session 2>&1 | tail -20
+          fi
+          sleep 2
+        done
+        
+        # Verify ComfyUI is running
+        if ! curl -s --max-time 2 http://localhost:8188/ > /dev/null 2>&1; then
+          echo "ERROR: ComfyUI failed to start"
+          echo "Checking if port 8188 is listening:"
+          ss -tlnp | grep 8188 || echo "Port 8188 not found"
+          echo "Docker logs:"
+          docker logs comfyui-session
+          exit 1
+        fi
+        
+        echo ""
+        echo "=============================================="
+        echo "ComfyUI is running on port 8188"
+        echo "=============================================="
+        echo ""
+        
+        # Setup reverse SSH tunnel to EC2 proxy
+        echo "Setting up reverse SSH tunnel to EC2 proxy..."
+        echo "EC2 Proxy: {{Param.EC2_PROXY_HOST}}"
+        
+        # Start reverse SSH tunnel using the attached key
+        # -R 8188:localhost:8188 = Forward EC2:8188 to Worker:8188
+        echo "Starting reverse SSH tunnel..."
+        ssh -i ~/.ssh/comfyui_tunnel_key \
+            -R 8188:localhost:8188 \
+            -N \
+            -o StrictHostKeyChecking=no \
+            -o ServerAliveInterval=60 \
+            -o ServerAliveCountMax=3 \
+            -o ExitOnForwardFailure=yes \
+            {{Param.EC2_PROXY_USER}}@{{Param.EC2_PROXY_HOST}} &
+        
+        SSH_PID=$!
+        echo "Reverse SSH tunnel started with PID: $SSH_PID"
+        
+        # Keep the session alive
+        echo ""
+        echo "=============================================="
+        echo "ComfyUI session active"
+        echo "Access via: http://localhost:8188 (from Mac after SSM tunnel)"
+        echo "Session will end in {{Param.SESSION_DURATION}} seconds"
+        echo "=============================================="
+        
+        # Monitor the session
+        ELAPSED=0
+        INTERVAL=60
+        while [ $ELAPSED -lt {{Param.SESSION_DURATION}} ]; do
+          sleep $INTERVAL
+          ELAPSED=$((ELAPSED + INTERVAL))
+          REMAINING=$(({{Param.SESSION_DURATION}} - ELAPSED))
+          echo "[$(date)] Session active. Time remaining: $REMAINING seconds"
+          
+          # Check if container is still running
+          if ! docker ps | grep -q comfyui-session; then
+            echo "WARNING: ComfyUI container stopped unexpectedly"
+            echo "Container logs:"
+            docker logs comfyui-session 2>&1 | tail -50
+            break
+          fi
+          
+          # Check if SSH tunnel is still running
+          if ! kill -0 $SSH_PID 2>/dev/null; then
+            echo "WARNING: SSH tunnel died, restarting..."
+            ssh -i ~/.ssh/comfyui_tunnel_key \
+                -R 8188:localhost:8188 \
+                -N \
+                -o StrictHostKeyChecking=no \
+                -o ServerAliveInterval=60 \
+                -o ServerAliveCountMax=3 \
+                {{Param.EC2_PROXY_USER}}@{{Param.EC2_PROXY_HOST}} &
+            SSH_PID=$!
+          fi
+        done
+        
+        echo ""
+        echo "Session duration reached. Cleaning up..."
+        
+        # Cleanup
+        echo "Stopping SSH tunnel..."
+        kill $SSH_PID 2>/dev/null || true
+        
+        echo "Stopping ComfyUI container..."
+        docker stop comfyui-session || true
+        docker rm comfyui-session || true
+        
+        echo "Cleaning up Docker resources..."
+        docker container prune -f
+        
+        echo "ComfyUI session ended."
