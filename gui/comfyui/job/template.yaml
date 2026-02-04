@@ -27,7 +27,7 @@ parameterDefinitions:
 - name: SESSION_DURATION
   type: INT
   description: "How long to keep the ComfyUI session alive (seconds)"
-  default: 3600
+  default: 10800
 - name: SSHPrivateKey
   type: PATH
   objectType: FILE

@@ -127,20 +127,78 @@ models/
 
 Create specialized images with models pre-installed:
 
-### SD 1.5 Image
-```bash
-docker build -f Dockerfile.sd15 -t comfyui-sd15:latest .
-```
-
 ### SDXL Image
 ```bash
 docker build -f Dockerfile.sdxl -t comfyui-sdxl:latest .
 ```
 
-### Flux Image
+### Hunyuan3D Image (SDXL + 3D Generation)
 ```bash
-docker build -f Dockerfile.flux -t comfyui-flux:latest .
+docker build -f Dockerfile.hunyuan3d -t comfyui-hunyuan3d:latest .
 ```
+
+## ECR Repository
+
+Images are stored in AWS ECR:
+
+```
+224071664257.dkr.ecr.us-west-2.amazonaws.com/comfyui-sdxl:latest
+224071664257.dkr.ecr.us-west-2.amazonaws.com/comfyui-hunyuan3d:latest
+```
+
+### Build and Push to ECR
+
+```bash
+# 1. Login to ECR
+aws ecr get-login-password --region us-west-2 | \
+  docker login --username AWS --password-stdin 224071664257.dkr.ecr.us-west-2.amazonaws.com
+
+# 2. Build base image
+docker build -t comfyui-rocky:latest .
+
+# 3. Build SDXL image
+docker build -f Dockerfile.sdxl -t comfyui-sdxl:latest .
+
+# 4. Build Hunyuan3D image (includes SDXL)
+docker build -f Dockerfile.hunyuan3d -t comfyui-hunyuan3d:latest .
+
+# 5. Tag for ECR
+docker tag comfyui-hunyuan3d:latest 224071664257.dkr.ecr.us-west-2.amazonaws.com/comfyui-hunyuan3d:latest
+
+# 6. Push to ECR
+docker push 224071664257.dkr.ecr.us-west-2.amazonaws.com/comfyui-hunyuan3d:latest
+```
+
+### Create ECR Repository (if needed)
+
+```bash
+aws ecr create-repository --repository-name comfyui-hunyuan3d --region us-west-2
+```
+
+## Running a Job on Deadline Cloud
+
+### Submit Job
+
+```bash
+cd job/
+deadline bundle submit . \
+  --farm-id farm-fd8e9a84d9c04142848c6ea56c9d7568 \
+  --queue-id queue-2eb8ef58ce5d48d1bbaf3e2f65ea2c38 \
+  --max-retries-per-task 1
+```
+
+### Connect from Mac
+
+1. Start SSM port forward:
+```bash
+aws ssm start-session \
+  --target i-0abc123def456 \
+  --document-name AWS-StartPortForwardingSession \
+  --parameters '{"portNumber":["8188"],"localPortNumber":["8188"]}' \
+  --region us-west-2
+```
+
+2. Open browser: **http://localhost:8188**
 
 ## Reverse Tunnel Setup
 
