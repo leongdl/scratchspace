@@ -100,12 +100,12 @@ steps:
         
         # Wait for ComfyUI to be ready
         echo "Waiting for ComfyUI to start on port 8188..."
-        for i in {1..60}; do
+        for i in {1..120}; do
           if curl -s --max-time 2 http://localhost:8188/ > /dev/null 2>&1; then
             echo "ComfyUI is ready!"
             break
           fi
-          echo "Waiting... ($i/60)"
+          echo "Waiting... ($i/120)"
           if [ $((i % 10)) -eq 0 ]; then
             echo "Container logs:"
             docker logs comfyui-session 2>&1 | tail -20

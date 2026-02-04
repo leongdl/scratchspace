@@ -1,138 +1,145 @@
 # Hunyuan3D ComfyUI Workflow Guide
 
-## Stage 1: Image Creation (SDXL)
+Based on kijai's ComfyUI-Hunyuan3DWrapper nodes.
 
-Create a high-quality 2D image that will become your 3D model.
+## Quick Start: Single-View Image to 3D
 
-### Nodes to add:
-1. **Load Checkpoint**
-2. **CLIP Text Encode** (for positive prompt)
-3. **CLIP Text Encode** (for negative prompt) 
-4. **Empty Latent Image**
-5. **KSampler**
-6. **VAE Decode**
+This is the simplest workflow - one image in, 3D model out.
+
+### Nodes Required:
+1. **Load Image** - Your input image
+2. **Hy3DModelLoader** - Loads the shape generation model
+3. **Hy3DGenerateMesh** - Generates 3D mesh from image
+4. **Preview3D** or **Save 3D Mesh** - View/save result
 
 ### Connections:
 
 | From Node | Output | → | To Node | Input |
 |-----------|--------|---|---------|-------|
-| Load Checkpoint | MODEL | → | KSampler | model |
-| Load Checkpoint | CLIP | → | CLIP Text Encode (positive) | clip |
-| Load Checkpoint | CLIP | → | CLIP Text Encode (negative) | clip |
-| Load Checkpoint | VAE | → | VAE Decode | vae |
-| CLIP Text Encode (positive) | CONDITIONING | → | KSampler | positive |
-| CLIP Text Encode (negative) | CONDITIONING | → | KSampler | negative |
-| Empty Latent Image | LATENT | → | KSampler | latent_image |
-| KSampler | LATENT | → | VAE Decode | samples |
+| Load Image | IMAGE | → | Hy3DGenerateMesh | image |
+| Hy3DModelLoader | MODEL | → | Hy3DGenerateMesh | model |
+| Hy3DModelLoader | VAE | → | Hy3DGenerateMesh | vae |
+| Hy3DGenerateMesh | MESH | → | Preview3D / Save 3D Mesh | mesh |
 
 ### Settings:
-- Load Checkpoint: Select `sd_xl_base_1.0.safetensors`
-- Empty Latent Image: 1024x1024
-- KSampler: steps=20, cfg=7, sampler=euler, scheduler=normal
+- **Hy3DModelLoader**: Select `hunyuan3d-dit-v2-0-fp16.safetensors` or `hunyuan3d-dit-v2-1`
+- Model path: `ComfyUI/models/diffusion_models/`
 
 ---
 
-## Stage 2: Multi-View Generation
+## Full Workflow: Image to Textured 3D Model
 
-Generate views from multiple angles (front, side, back).
+### Stage 1: Load Models
 
-### Nodes to add:
-1. **Hy3D_MultiView_Gen** (or similar name in Hunyuan3D category)
+| Node | Purpose |
+|------|---------|
+| **Hy3DModelLoader** | Loads shape generation model (DiT + VAE) |
+
+### Stage 2: Generate Mesh
+
+| Node | Purpose |
+|------|---------|
+| **Load Image** | Input image (ideally with transparent/removed background) |
+| **Hy3DGenerateMesh** | Converts image to 3D mesh |
 
 ### Connections:
 
-| From Node | Output | → | To Node | Input |
-|-----------|--------|---|---------|-------|
-| VAE Decode | IMAGE | → | Hy3D_MultiView_Gen | image |
+| From | Output | → | To | Input |
+|------|--------|---|-----|-------|
+| Load Image | IMAGE | → | Hy3DGenerateMesh | image |
+| Hy3DModelLoader | MODEL | → | Hy3DGenerateMesh | model |
+| Hy3DModelLoader | VAE | → | Hy3DGenerateMesh | vae |
+
+### Stage 3: Generate Texture (Optional)
+
+For textured output, add texture generation nodes:
+
+| Node | Purpose |
+|------|---------|
+| **Hy3DTextureGen** | Generates PBR textures for the mesh |
+
+| From | Output | → | To | Input |
+|------|--------|---|-----|-------|
+| Hy3DGenerateMesh | MESH | → | Hy3DTextureGen | mesh |
+| Load Image | IMAGE | → | Hy3DTextureGen | image |
+
+### Stage 4: Save Output
+
+| Node | Purpose |
+|------|---------|
+| **Preview3D** | Preview in ComfyUI |
+| **Save 3D Mesh** | Export .obj/.glb file |
 
 ---
 
-## Stage 3: 3D Mesh Generation
+## Multi-View Workflow (Better Quality)
 
-Convert the multi-view images into a 3D mesh.
+Use multiple views for higher quality 3D generation.
 
-### Nodes to add:
-1. **Hy3DModelLoader** (loads the shape generation model)
-2. **Hy3D_Mesh_Gen** (generates the mesh)
-3. **Save 3D Mesh** (exports .obj/.glb file)
-
-### Connections:
-
-| From Node | Output | → | To Node | Input |
-|-----------|--------|---|---------|-------|
-| Hy3DModelLoader | MODEL | → | Hy3D_Mesh_Gen | model |
-| Hy3D_MultiView_Gen | IMAGE | → | Hy3D_Mesh_Gen | images |
-| Hy3D_Mesh_Gen | MESH | → | Save 3D Mesh | mesh |
-
-### Settings:
-- Hy3DModelLoader: Select the dit model (hunyuan3d-dit-v2-1)
-
----
-
-## Stage 4: Texture & Material Painting
-
-Apply PBR textures to the 3D mesh.
-
-### Nodes to add:
-1. **Hy3D_Paint** (applies textures)
-2. **Save Image** (for texture maps)
-3. **Save Material File** (for .mtl file, if available)
+### Nodes:
+1. **Load Image** (x4) - Front, Left, Back, Right views
+2. **Hy3DModelLoader** - Use `hunyuan3d-dit-v2-mv` model
+3. **Hy3DGenerateMeshMultiView** - Multi-view mesh generation
 
 ### Connections:
 
-| From Node | Output | → | To Node | Input |
-|-----------|--------|---|---------|-------|
-| Hy3D_Mesh_Gen | MESH | → | Hy3D_Paint | mesh |
-| Hy3D_MultiView_Gen | IMAGE | → | Hy3D_Paint | images |
-| Hy3D_Paint | TEXTURE | → | Save Image | images |
-| Hy3D_Paint | MATERIAL | → | Save Material File | mtl |
+| From | Output | → | To | Input |
+|------|--------|---|-----|-------|
+| Load Image (front) | IMAGE | → | Hy3DGenerateMeshMultiView | front |
+| Load Image (left) | IMAGE | → | Hy3DGenerateMeshMultiView | left |
+| Load Image (back) | IMAGE | → | Hy3DGenerateMeshMultiView | back |
+| Load Image (right) | IMAGE | → | Hy3DGenerateMeshMultiView | right |
+| Hy3DModelLoader | MODEL | → | Hy3DGenerateMeshMultiView | model |
+| Hy3DModelLoader | VAE | → | Hy3DGenerateMeshMultiView | vae |
 
 ---
 
 ## Complete Flow Diagram
 
 ```
-[Load Checkpoint]
-    ├── MODEL → [KSampler]
-    ├── CLIP → [CLIP Text Encode +] → positive → [KSampler]
-    ├── CLIP → [CLIP Text Encode -] → negative → [KSampler]
-    └── VAE → [VAE Decode]
-
-[Empty Latent Image] → latent_image → [KSampler]
-
-[KSampler] → LATENT → [VAE Decode] → IMAGE → [Hy3D_MultiView_Gen]
-                                                    │
-                                                    ├── IMAGE → [Hy3D_Mesh_Gen] → MESH → [Save 3D Mesh]
-                                                    │                │
-                                                    │                └── MESH ─┐
-                                                    │                          │
-                                                    └── IMAGE ────────────────→ [Hy3D_Paint]
-                                                                                    │
-                                                                                    ├── TEXTURE → [Save Image]
-                                                                                    └── MATERIAL → [Save Material]
-
-[Hy3DModelLoader] → MODEL → [Hy3D_Mesh_Gen]
+[Load Image] ─────────────────────────────────────┐
+                                                  │
+[Hy3DModelLoader]                                 │
+    ├── MODEL ──┐                                 │
+    └── VAE ────┼──→ [Hy3DGenerateMesh] ←─────────┘
+                │           │
+                │           ├── MESH ──→ [Preview3D]
+                │           │
+                │           └── MESH ──→ [Hy3DTextureGen] ──→ [Save Image]
+                │                              ↑
+[Load Image] ──────────────────────────────────┘
 ```
+
+---
+
+## Model Files Location
+
+Models should be in `ComfyUI/models/diffusion_models/`:
+- `hunyuan3d-dit-v2-0-fp16.safetensors` (single-view)
+- `hunyuan3d-dit-v2-1.safetensors` (v2.1)
+- `hunyuan3d-dit-v2-mv.safetensors` (multi-view)
+- `hunyuan3d-dit-v2-mv-turbo.safetensors` (fast multi-view)
+
+Pre-baked models in this container are at `/opt/hunyuan3d-models/`
 
 ---
 
 ## VRAM Requirements
 
-| Stage | VRAM Needed |
-|-------|-------------|
-| Stage 1 (SDXL) | ~8GB |
-| Stage 2 (MultiView) | ~6GB |
-| Stage 3 (Mesh Gen) | ~10GB |
-| Stage 4 (Paint) | ~21GB |
-| **All at once** | **~29GB** |
+| Operation | VRAM |
+|-----------|------|
+| Shape generation (single-view) | ~10GB |
+| Shape generation (multi-view) | ~12GB |
+| Texture generation | ~21GB |
+| Full pipeline | ~29GB |
 
-Tip: Run stages sequentially on 24GB GPUs, or use 48GB+ for full pipeline.
+**Tip:** On 24GB GPUs, run shape and texture generation separately.
 
 ---
 
 ## Tips
 
-1. **Test Stage 1 first** - Make sure your SDXL image looks good before generating 3D
-2. **Check node names** - The exact names may vary (look in the Hunyuan3D node category)
-3. **Save intermediate outputs** - Add Preview Image nodes between stages to check progress
-4. **Iterate on shape first** - If the mesh looks good but colors are off, only re-run Stage 4
+1. **Remove background first** - Use rembg or similar before feeding to Hy3D nodes
+2. **Check node names** - Right-click canvas → Add Node → Search "Hy3D"
+3. **Start simple** - Test with just Hy3DModelLoader + Hy3DGenerateMesh + Preview3D
+4. **Use turbo model** - `hunyuan3d-dit-v2-mv-turbo` is faster for testing

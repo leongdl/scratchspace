@@ -4,13 +4,35 @@ FROM 224071664257.dkr.ecr.us-west-2.amazonaws.com/comfyui-hunyuan3d:latest
 
 USER root
 
-# Create proper startup script that symlinks pre-baked models into the volume
+# Create proper startup script that downloads models if needed
 RUN printf '%s\n' '#!/bin/bash' \
+    'set -e' \
+    'echo "=== Hunyuan3D Entrypoint ===" ' \
+    '' \
+    '# Ensure diffusion_models directory exists' \
+    'mkdir -p /opt/comfyui/models/diffusion_models' \
+    'chown comfyui:comfyui /opt/comfyui/models/diffusion_models' \
+    '' \
+    '# Download Hunyuan3D model if not present' \
+    'MODEL_PATH="/opt/comfyui/models/diffusion_models/hunyuan3d-dit-v2-0-fp16.safetensors"' \
+    'if [ ! -f "$MODEL_PATH" ]; then' \
+    '    echo "Downloading Hunyuan3D DiT model (fp16)..."' \
+    '    echo "URL: https://huggingface.co/Kijai/Hunyuan3D-2_safetensors/resolve/main/hunyuan3d-dit-v2-0-fp16.safetensors"' \
+    '    wget -q --show-progress -O "$MODEL_PATH" "https://huggingface.co/Kijai/Hunyuan3D-2_safetensors/resolve/main/hunyuan3d-dit-v2-0-fp16.safetensors"' \
+    '    chown comfyui:comfyui "$MODEL_PATH"' \
+    '    echo "Download complete: $(ls -lh $MODEL_PATH)"' \
+    'else' \
+    '    echo "Model already exists: $(ls -lh $MODEL_PATH)"' \
+    'fi' \
+    '' \
     '# Link pre-baked Hunyuan3D models into the models volume' \
     'if [ -d /opt/hunyuan3d-models ] && [ ! -L /opt/comfyui/models/hunyuan3d ]; then' \
     '    rm -rf /opt/comfyui/models/hunyuan3d' \
     '    ln -sf /opt/hunyuan3d-models /opt/comfyui/models/hunyuan3d' \
+    '    echo "Linked /opt/hunyuan3d-models to /opt/comfyui/models/hunyuan3d"' \
     'fi' \
+    '' \
+    'echo "=== Starting ComfyUI ===" ' \
     'exec "$@"' > /entrypoint.sh && chmod +x /entrypoint.sh
 
 USER comfyui
