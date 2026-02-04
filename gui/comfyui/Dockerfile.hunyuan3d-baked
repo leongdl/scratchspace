@@ -1,0 +1,19 @@
+# ComfyUI with SDXL + Hunyuan3D 2.1 models pre-baked
+# Build from the committed image with models already downloaded
+FROM comfyui-hunyuan3d:with-models
+
+USER root
+
+# Create startup script that symlinks pre-baked models into the volume
+RUN echo '#!/bin/bash\n\
+# Link pre-baked Hunyuan3D models into the models volume\n\
+if [ -d /opt/hunyuan3d-models ] && [ ! -L /opt/comfyui/models/hunyuan3d ]; then\n\
+    rm -rf /opt/comfyui/models/hunyuan3d\n\
+    ln -sf /opt/hunyuan3d-models /opt/comfyui/models/hunyuan3d\n\
+fi\n\
+exec "$@"' > /entrypoint.sh && chmod +x /entrypoint.sh
+
+# Reset the CMD that got overwritten by docker commit
+USER comfyui
+ENTRYPOINT ["/entrypoint.sh"]
+CMD ["python3.12", "main.py", "--listen", "0.0.0.0", "--port", "8188"]

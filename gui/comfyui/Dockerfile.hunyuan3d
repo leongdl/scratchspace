@@ -1,0 +1,70 @@
+# ComfyUI with SDXL + Hunyuan3D 2.1 models pre-baked
+# Build: docker build -f Dockerfile.hunyuan3d -t comfyui-hunyuan3d:latest .
+#
+# VRAM Requirements:
+#   - Shape generation: 10GB
+#   - Texture generation: 21GB
+#   - Combined: 29GB (requires 48GB+ GPU, or run sequentially on 24GB)
+
+FROM comfyui-sdxl:latest
+
+USER root
+
+# Install build dependencies for nvdiffrast (Rocky Linux uses dnf)
+RUN dnf install -y gcc-c++ mesa-libGL-devel mesa-libEGL-devel || true
+RUN pip install ninja
+RUN dnf clean all || true
+
+# Switch to comfyui user for Python package installs (PyTorch is in their home)
+USER comfyui
+
+# Install additional dependencies for Hunyuan3D
+RUN pip install --user \
+    trimesh \
+    pygltflib \
+    xatlas \
+    wheel \
+    setuptools
+
+# Install nvdiffrast from GitHub (needs PyTorch and --no-build-isolation)
+# Set CUDA arch list for common GPUs (A10G, L4, L40S, A100)
+ENV TORCH_CUDA_ARCH_LIST="7.5;8.0;8.6;8.9;9.0"
+RUN pip install --user --no-build-isolation git+https://github.com/NVlabs/nvdiffrast.git
+
+# Install pytorch3d from GitHub (needs --no-build-isolation for torch access)
+RUN pip install --user --no-build-isolation "pytorch3d @ git+https://github.com/facebookresearch/pytorch3d.git"
+
+USER root
+
+# Install Hunyuan3D ComfyUI wrapper
+RUN git clone https://github.com/kijai/ComfyUI-Hunyuan3DWrapper.git \
+    /opt/comfyui/custom_nodes/ComfyUI-Hunyuan3DWrapper && \
+    chown -R comfyui:comfyui /opt/comfyui/custom_nodes/ComfyUI-Hunyuan3DWrapper
+
+USER comfyui
+RUN pip install --user -r /opt/comfyui/custom_nodes/ComfyUI-Hunyuan3DWrapper/requirements.txt || true
+
+USER root
+
+# Install huggingface_hub for root user to download models
+RUN python3.12 -m pip install huggingface_hub
+
+# Create model directories (models will be downloaded at runtime or mounted)
+RUN mkdir -p /opt/comfyui/models/hunyuan3d
+
+# Note: Hunyuan3D models are downloaded at runtime by the ComfyUI wrapper
+# The wrapper handles model downloading from tencent/Hunyuan3D-2.1
+# If you want to pre-bake models, set HF_TOKEN env var during build:
+# docker build --build-arg HF_TOKEN=your_token ...
+ARG HF_TOKEN=""
+RUN if [ -n "$HF_TOKEN" ]; then \
+    python3.12 -c "import os; os.environ['HF_TOKEN']='$HF_TOKEN'; from huggingface_hub import snapshot_download; snapshot_download('tencent/Hunyuan3D-2.1', local_dir='/opt/comfyui/models/hunyuan3d', local_dir_use_symlinks=False)" || echo "Model download skipped - will download at runtime"; \
+    fi
+
+# Set proper ownership
+RUN chown -R comfyui:comfyui /opt/comfyui/custom_nodes /opt/comfyui/models
+
+USER comfyui
+
+# Enable TAESD previews by default
+ENV PREVIEW_METHOD=taesd

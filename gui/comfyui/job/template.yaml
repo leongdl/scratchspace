@@ -1,15 +1,15 @@
 specificationVersion: 'jobtemplate-2023-09'
-name: ComfyUI-SDXL-Session
+name: ComfyUI-Hunyuan3D-Session
 parameterDefinitions:
 - name: Message
   type: STRING
-  default: Starting ComfyUI SDXL Session
+  default: Starting ComfyUI Hunyuan3D Session
 - name: ECR_REGISTRY
   type: STRING
   default: 224071664257.dkr.ecr.us-west-2.amazonaws.com
 - name: COMFYUI_REPOSITORY
   type: STRING
-  default: comfyui-sdxl
+  default: comfyui-hunyuan3d
 - name: COMFYUI_TAG
   type: STRING
   default: latest
@@ -59,7 +59,7 @@ steps:
         
         echo '{{Param.Message}}'
         echo "=============================================="
-        echo "Starting ComfyUI SDXL Session"
+        echo "Starting ComfyUI Hunyuan3D Session"
         echo "=============================================="
         echo "Current user: $(whoami)"
         echo "Current directory: $(pwd)"
