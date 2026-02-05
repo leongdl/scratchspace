@@ -31,8 +31,10 @@ RUN pip install --user \
 ENV TORCH_CUDA_ARCH_LIST="7.5;8.0;8.6;8.9;9.0"
 RUN pip install --user --no-build-isolation git+https://github.com/NVlabs/nvdiffrast.git
 
-# Install pytorch3d from GitHub (needs --no-build-isolation for torch access)
-RUN pip install --user --no-build-isolation "pytorch3d @ git+https://github.com/facebookresearch/pytorch3d.git"
+# Install pytorch3d - use pre-built wheel from pytorch3d releases to avoid OOM during compilation
+# For CUDA 12.4 + PyTorch 2.5 + Python 3.12
+RUN pip install --user --no-cache-dir pytorch3d -f https://dl.fbaipublicfiles.com/pytorch3d/packaging/wheels/py312_cu124_pyt251/download.html || \
+    MAX_JOBS=2 pip install --user --no-build-isolation "pytorch3d @ git+https://github.com/facebookresearch/pytorch3d.git"
 
 USER root
 
@@ -43,6 +45,11 @@ RUN git clone https://github.com/kijai/ComfyUI-Hunyuan3DWrapper.git \
 
 USER comfyui
 RUN pip install --user -r /opt/comfyui/custom_nodes/ComfyUI-Hunyuan3DWrapper/requirements.txt || true
+
+# Build custom_rasterizer for texture generation (requires CUDA and torch access)
+WORKDIR /opt/comfyui/custom_nodes/ComfyUI-Hunyuan3DWrapper/hy3dgen/texgen/custom_rasterizer
+RUN pip install --user --no-build-isolation .
+WORKDIR /opt/comfyui
 
 USER root
 

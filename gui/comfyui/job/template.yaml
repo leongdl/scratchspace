@@ -165,6 +165,10 @@ steps:
           REMAINING=$(({{Param.SESSION_DURATION}} - ELAPSED))
           echo "[$(date)] Session active. Time remaining: $REMAINING seconds"
           
+          # Show GPU/CPU usage
+          echo "=== GPU Status ==="
+          nvidia-smi --query-gpu=utilization.gpu,utilization.memory,memory.used,memory.total,temperature.gpu --format=csv,noheader,nounits | awk -F', ' '{printf "GPU: %s%% | Mem: %s%% (%sMiB/%sMiB) | Temp: %s°C\n", $1, $2, $3, $4, $5}'
+          
           # Check if container is still running
           if ! docker ps | grep -q comfyui-session; then
             echo "WARNING: ComfyUI container stopped unexpectedly"
