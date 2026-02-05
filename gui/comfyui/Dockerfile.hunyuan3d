@@ -73,5 +73,17 @@ RUN chown -R comfyui:comfyui /opt/comfyui/custom_nodes /opt/comfyui/models
 
 USER comfyui
 
+# Create startup script to download models on first run
+RUN echo '#!/bin/bash' > /opt/comfyui/download_models.sh && \
+    echo 'MODEL_DIR="/opt/comfyui/models/diffusion_models"' >> /opt/comfyui/download_models.sh && \
+    echo 'if [ ! -f "$MODEL_DIR/hunyuan3d-dit-v2-0-fp16.safetensors" ]; then' >> /opt/comfyui/download_models.sh && \
+    echo '  echo "Downloading Hunyuan3D models..."' >> /opt/comfyui/download_models.sh && \
+    echo '  python3.12 -c "from huggingface_hub import hf_hub_download; hf_hub_download(repo_id=\"tencent/Hunyuan3D-2\", filename=\"hunyuan3d-dit-v2-0/model.safetensors\", local_dir=\"$MODEL_DIR\", local_dir_use_symlinks=False)" || echo "Model download will happen at runtime"' >> /opt/comfyui/download_models.sh && \
+    echo 'fi' >> /opt/comfyui/download_models.sh && \
+    chmod +x /opt/comfyui/download_models.sh
+
 # Enable TAESD previews by default
 ENV PREVIEW_METHOD=taesd
+
+# Run model download script before starting ComfyUI
+CMD ["/bin/bash", "-c", "/opt/comfyui/download_models.sh && python3.12 main.py --listen 0.0.0.0 --port 8188"]
