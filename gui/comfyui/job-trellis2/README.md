@@ -66,6 +66,16 @@ if not os.path.exists(dinov3_model_path):
 
 Bake path: `/opt/comfyui/models/facebook/dinov3-vitl16-pretrain-lvd1689m/`
 
+**GATED REPO WARNING**: This is a Facebook gated model on HuggingFace. Access requires:
+1. A HuggingFace account
+2. Requesting access at https://huggingface.co/facebook/dinov3-vitl16-pretrain-lvd1689m
+3. Waiting for **manual approval by Facebook** (not instant — can take hours/days)
+4. Passing `HF_TOKEN` as a Docker build arg: `--build-arg HF_TOKEN=hf_xxx`
+
+There is no ungated alternative — DINOv3 is architecturally required by TRELLIS-2 as its image feature extractor (`DINOv3ViTModel.from_pretrained()` in `trellis2/modules/image_feature_extractor.py`).
+
+Fallback mirror: https://sourceforge.net/projects/dinov3.mirror/
+
 ### BRIA RMBG 1.4 — `custom_nodes/ComfyUI-BRIA_AI-RMBG/RMBG-1.4/model.pth`
 
 Source: [`ComfyUI-BRIA_AI-RMBG/BRIA_RMBG.py` BRIA_RMBG_ModelLoader_Zho.load_model()](https://github.com/ZHO-ZHO-ZHO/ComfyUI-BRIA_AI-RMBG/blob/main/BRIA_RMBG.py)
@@ -113,10 +123,16 @@ Note: This is RMBG 1.4 (PyTorch `.pth`), NOT RMBG 2.0 (ONNX). The research doc r
 
 ## Dependencies
 
-- `flash-attn` or `xformers` (selectable via node, default `xformers`)
-- Pre-built wheels from `ComfyUI-Trellis2/wheels/` (cumesh, nvdiffrast, nvdiffrec_render, flex_gemm, o_voxel)
+- `xformers==0.0.30` (default attention backend, must be pinned to match torch 2.7.0)
+- Pre-built wheels from `ComfyUI-Trellis2/wheels/Linux/Torch270/` (cumesh, nvdiffrast, flex_gemm, o_voxel)
+  - Must install with `pip install --no-deps` because o_voxel declares cumesh as a git dependency which conflicts with the local wheel
 - `requirements.txt` from both custom node repos
-- PyTorch with CUDA 12.4 support
+- PyTorch 2.7.0+cu126 (the wheels require torch 2.7.0; cu126 requires CUDA 12.6 base image)
+
+**Standalone image required**: Cannot layer on `comfyui-sdxl:latest` (torch 2.6.0+cu124) because:
+- Trellis2 wheels require torch 2.7.0, which is not available for cu124
+- torch 2.7.0+cu126 on a cu124 base causes `undefined symbol: cudaGetDriverEntryPointByVersion`
+- Uses `nvidia/cuda:12.6.3-devel-rockylinux9` as base instead
 
 Source: [ComfyUI-Trellis2 Installation Guide](https://github.com/visualbruno/ComfyUI-Trellis2#%EF%B8%8F-installation-guide)
 
@@ -144,8 +160,9 @@ Source: [TRELLIS.2-4B HuggingFace — Requirements](https://huggingface.co/micro
 ## Build
 
 ```bash
-# Requires base comfyui-sdxl:latest image
-docker build -f Dockerfile.trellis2 -t comfyui-trellis2:latest .
+# Standalone image (does NOT require comfyui-sdxl base)
+# HF_TOKEN required for gated DINOv3 model
+docker build --build-arg HF_TOKEN=hf_xxx -f Dockerfile.trellis2 -t comfyui-trellis2:latest .
 ```
 
 ## Run (Standalone)

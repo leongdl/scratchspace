@@ -93,6 +93,13 @@ Source: [BadAss Wan Resource List (CivitAI)](https://civitai.com/articles/16983/
 |------|------------|---------|
 | ComfyUI-WanVideoWrapper | [kijai/ComfyUI-WanVideoWrapper](https://github.com/kijai/ComfyUI-WanVideoWrapper) | WanVideo ComfyUI integration (T2V, I2V, VACE, GGUF, LoRA) |
 
+## Dependencies
+
+- All pip requirements from `ComfyUI-WanVideoWrapper/requirements.txt` (ftfy, accelerate, einops, diffusers, peft, sentencepiece, protobuf, pyloudnorm, gguf, opencv-python, scipy)
+- Layers on `comfyui-sdxl:latest` which provides torch 2.6.0+cu124, ComfyUI, and SDXL checkpoints
+- No native CUDA extensions needed — pure Python/PyTorch
+- **Torch version agnostic**: Unlike TRELLIS-2 (which ships pre-compiled C++/CUDA wheels binary-linked to a specific torch ABI), WanVideoWrapper uses only standard PyTorch ops and pip-installable Python packages. No `.so` files to match, so it runs on torch 2.6.0, 2.7.0, or any compatible version without rebuild
+
 ## VRAM Requirements
 
 | Operation | VRAM |
@@ -116,9 +123,13 @@ Source: [CivitAI Wan Resource List — VRAM Considerations](https://civitai.com/
 ## Build
 
 ```bash
-# Requires base comfyui-sdxl:latest image
+# Layers on comfyui-sdxl:latest (torch 2.6.0+cu124) — clean build, no dependency issues
 docker build -f Dockerfile.wanvideo -t comfyui-wanvideo:latest .
 ```
+
+Build is straightforward — all models are public ungated HuggingFace repos downloaded via `wget`, and the WanVideoWrapper requirements install cleanly against the base image's torch 2.6.0+cu124. No HF_TOKEN needed. No native CUDA extensions to compile.
+
+Total image size: ~50GB (base ~12GB + SDXL ~7GB + Wan 14B ~28GB + VAE ~300MB + UMT5 ~9.5GB + deps).
 
 ## Run (Standalone)
 
@@ -148,6 +159,25 @@ docker run --gpus all -p 8188:8188 \
 docker tag comfyui-wanvideo:latest 224071664257.dkr.ecr.us-west-2.amazonaws.com/comfyui-wanvideo:latest
 docker push 224071664257.dkr.ecr.us-west-2.amazonaws.com/comfyui-wanvideo:latest
 ```
+
+## Build Summary
+
+Built and verified locally. All layers cached.
+
+| Layer | Size | Description |
+|-------|------|-------------|
+| Base (Rocky Linux) | 176MB | OS layer |
+| CUDA 12.4 + Python 3.12 + ComfyUI + torch 2.6.0 | ~19GB | Base runtime from `comfyui-sdxl:latest` |
+| SDXL checkpoints (inherited) | ~13GB | SDXL models from base image |
+| ComfyUI-WanVideoWrapper (git clone) | 67MB | Custom node |
+| pip requirements | 331MB | ftfy, accelerate, einops, diffusers, etc. |
+| wan2.1_t2v_14B_fp16.safetensors | 28.6GB | Diffusion model |
+| wan_2.1_vae.safetensors | 254MB | VAE decoder |
+| umt5_xxl_fp16.safetensors | 11.4GB | Text encoder |
+| chown (ownership fix) | 53.6GB | Metadata-only layer (no new data) |
+
+Image: `comfyui-wanvideo:latest`
+SHA: `7055c2b5106c`
 
 ## References
 

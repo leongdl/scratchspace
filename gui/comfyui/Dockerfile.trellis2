@@ -1,0 +1,193 @@
+# ComfyUI with TRELLIS-2 4B + BRIA RMBG 1.4 pre-baked
+# Standalone image — uses CUDA 12.6 base for torch 2.7.0 + Trellis2 wheel compatibility
+# Build: docker build -f Dockerfile.trellis2 -t comfyui-trellis2:latest .
+# VRAM: ~24GB inference at 1536³ (fits on L40S 48GB, A100 40GB, or 24GB at 1024³)
+
+FROM nvidia/cuda:12.6.3-devel-rockylinux9
+
+ARG PYTHON_VERSION=3.12
+
+# Install system dependencies (mirrors base Dockerfile pattern)
+RUN dnf install -y epel-release && \
+    dnf update -y && \
+    dnf groupinstall -y "Development Tools" && \
+    dnf install -y --allowerasing \
+        python${PYTHON_VERSION} \
+        python${PYTHON_VERSION}-pip \
+        python${PYTHON_VERSION}-devel \
+        git \
+        wget \
+        curl \
+        procps-ng \
+        sudo \
+        openssh-clients \
+        mesa-libGL \
+        mesa-libGL-devel \
+        mesa-libEGL-devel \
+        libXrender \
+        libSM \
+        libXext \
+        libgomp \
+        && \
+    dnf clean all
+
+ENV PATH=/usr/local/cuda/bin:${PATH}
+ENV LD_LIBRARY_PATH=/usr/local/cuda/lib64:${LD_LIBRARY_PATH}
+
+# Create comfyui user
+RUN useradd -m -s /bin/bash comfyui && \
+    echo "comfyui:comfyui" | chpasswd && \
+    usermod -aG wheel comfyui
+
+# Clone ComfyUI
+WORKDIR /opt/comfyui
+RUN git clone https://github.com/Comfy-Org/ComfyUI.git /opt/comfyui && \
+    chown -R comfyui:comfyui /opt/comfyui
+
+# Create model directories
+RUN mkdir -p \
+    /opt/comfyui/models/checkpoints \
+    /opt/comfyui/models/clip \
+    /opt/comfyui/models/clip_vision \
+    /opt/comfyui/models/controlnet \
+    /opt/comfyui/models/diffusers \
+    /opt/comfyui/models/embeddings \
+    /opt/comfyui/models/gligen \
+    /opt/comfyui/models/hypernetworks \
+    /opt/comfyui/models/loras \
+    /opt/comfyui/models/style_models \
+    /opt/comfyui/models/unet \
+    /opt/comfyui/models/diffusion_models \
+    /opt/comfyui/models/text_encoders \
+    /opt/comfyui/models/upscale_models \
+    /opt/comfyui/models/vae \
+    /opt/comfyui/models/vae_approx \
+    /opt/comfyui/input \
+    /opt/comfyui/output \
+    /opt/comfyui/custom_nodes && \
+    chown -R comfyui:comfyui /opt/comfyui
+
+# Install Python dependencies with torch 2.7.0+cu126
+USER comfyui
+ENV PATH=/home/comfyui/.local/bin:${PATH}
+
+RUN python${PYTHON_VERSION} -m pip install --user --upgrade pip && \
+    python${PYTHON_VERSION} -m pip install --user \
+        torch==2.7.0+cu126 torchvision torchaudio --index-url https://download.pytorch.org/whl/cu126 && \
+    python${PYTHON_VERSION} -m pip install --user -r /opt/comfyui/requirements.txt
+
+# Install xformers compatible with torch 2.7.0
+RUN pip install --user xformers==0.0.30
+
+USER root
+
+# Install ComfyUI-Trellis2 custom node
+RUN git clone --depth 1 https://github.com/visualbruno/ComfyUI-Trellis2.git \
+    /opt/comfyui/custom_nodes/ComfyUI-Trellis2 && \
+    chown -R comfyui:comfyui /opt/comfyui/custom_nodes/ComfyUI-Trellis2
+
+# Install ComfyUI-BRIA_AI-RMBG custom node
+RUN git clone --depth 1 https://github.com/ZHO-ZHO-ZHO/ComfyUI-BRIA_AI-RMBG.git \
+    /opt/comfyui/custom_nodes/ComfyUI-BRIA_AI-RMBG && \
+    chown -R comfyui:comfyui /opt/comfyui/custom_nodes/ComfyUI-BRIA_AI-RMBG
+
+# Install Trellis2 pre-built wheels (cumesh, nvdiffrast, flex_gemm, o_voxel)
+# Use --no-deps because o_voxel declares cumesh as a git dep which conflicts with the local wheel
+# Source: https://github.com/visualbruno/ComfyUI-Trellis2#installation-guide
+USER comfyui
+RUN pip install --user --no-deps \
+    /opt/comfyui/custom_nodes/ComfyUI-Trellis2/wheels/Linux/Torch270/cumesh-0.0.1-cp312-cp312-linux_x86_64.whl \
+    /opt/comfyui/custom_nodes/ComfyUI-Trellis2/wheels/Linux/Torch270/nvdiffrast-0.4.0-cp312-cp312-linux_x86_64.whl \
+    /opt/comfyui/custom_nodes/ComfyUI-Trellis2/wheels/Linux/Torch270/flex_gemm-0.0.1-cp312-cp312-linux_x86_64.whl \
+    /opt/comfyui/custom_nodes/ComfyUI-Trellis2/wheels/Linux/Torch270/o_voxel-0.0.1-cp312-cp312-linux_x86_64.whl
+
+# Install Trellis2 Python requirements
+RUN pip install --user -r /opt/comfyui/custom_nodes/ComfyUI-Trellis2/requirements.txt
+
+# Install huggingface_hub for model downloads
+RUN pip install --user huggingface_hub
+
+USER root
+
+# Install huggingface_hub for root (used for model downloads during build)
+RUN python3.12 -m pip install huggingface_hub
+
+# Create model directories for TRELLIS-2
+RUN mkdir -p \
+    /opt/comfyui/models/microsoft/TRELLIS.2-4B \
+    /opt/comfyui/models/microsoft/TRELLIS-image-large/ckpts \
+    /opt/comfyui/models/facebook/dinov3-vitl16-pretrain-lvd1689m
+
+# Bake TRELLIS-2 4B model via snapshot_download (~6GB)
+# Source: https://huggingface.co/microsoft/TRELLIS.2-4B
+# Loaded by: Trellis2ImageTo3DPipeline.from_pretrained(model_path)
+RUN python3.12 -c "\
+from huggingface_hub import snapshot_download; \
+snapshot_download( \
+    repo_id='microsoft/TRELLIS.2-4B', \
+    local_dir='/opt/comfyui/models/microsoft/TRELLIS.2-4B', \
+    local_dir_use_symlinks=False \
+)"
+
+# Bake TRELLIS-image-large sparse structure decoder
+# Source: https://huggingface.co/microsoft/TRELLIS-image-large
+RUN wget -q --show-progress -O /opt/comfyui/models/microsoft/TRELLIS-image-large/ckpts/ss_dec_conv3d_16l8_fp16.safetensors \
+    "https://huggingface.co/microsoft/TRELLIS-image-large/resolve/main/ckpts/ss_dec_conv3d_16l8_fp16.safetensors"
+
+RUN wget -q --show-progress -O /opt/comfyui/models/microsoft/TRELLIS-image-large/ckpts/ss_dec_conv3d_16l8_fp16.json \
+    "https://huggingface.co/microsoft/TRELLIS-image-large/resolve/main/ckpts/ss_dec_conv3d_16l8_fp16.json"
+
+# Bake DINOv3 ViT-L model (~1.2GB) — manually-gated repo, requires HF approval
+# Source: https://huggingface.co/facebook/dinov3-vitl16-pretrain-lvd1689m
+# NOTE: This repo requires Facebook to manually approve access. If HF_TOKEN is set
+# and approved, the model is baked in. Otherwise it must be downloaded at runtime.
+ARG HF_TOKEN=""
+RUN if [ -n "$HF_TOKEN" ]; then \
+    python3.12 -c "\
+from huggingface_hub import snapshot_download; \
+snapshot_download( \
+    repo_id='facebook/dinov3-vitl16-pretrain-lvd1689m', \
+    local_dir='/opt/comfyui/models/facebook/dinov3-vitl16-pretrain-lvd1689m', \
+    local_dir_use_symlinks=False, \
+    token='$HF_TOKEN' \
+)" 2>/dev/null && echo "DINOv3 downloaded successfully" || \
+    echo "WARNING: DINOv3 download failed (access may be pending approval). Download manually or at runtime."; \
+    else echo "WARNING: HF_TOKEN not set. DINOv3 must be downloaded manually to models/facebook/dinov3-vitl16-pretrain-lvd1689m/"; \
+    fi
+
+# Bake BRIA RMBG 1.4 model (~170MB)
+# Source: https://huggingface.co/briaai/RMBG-1.4
+RUN wget -q --show-progress -O /opt/comfyui/custom_nodes/ComfyUI-BRIA_AI-RMBG/RMBG-1.4/model.pth \
+    "https://huggingface.co/briaai/RMBG-1.4/resolve/main/model.pth"
+
+# Bake SDXL models (same as Dockerfile.sdxl for shared workflow compatibility)
+RUN wget -q --show-progress -O /opt/comfyui/models/checkpoints/sd_xl_base_1.0.safetensors \
+    "https://huggingface.co/stabilityai/stable-diffusion-xl-base-1.0/resolve/main/sd_xl_base_1.0.safetensors"
+
+RUN wget -q --show-progress -O /opt/comfyui/models/vae/sdxl_vae.safetensors \
+    "https://huggingface.co/stabilityai/sdxl-vae/resolve/main/sdxl_vae.safetensors"
+
+RUN wget -q --show-progress -O /opt/comfyui/models/vae_approx/taesdxl_decoder.pth \
+    "https://github.com/madebyollin/taesd/raw/main/taesdxl_decoder.pth"
+
+# Set proper ownership
+RUN chown -R comfyui:comfyui /opt/comfyui/models /opt/comfyui/custom_nodes
+
+USER root
+
+# Copy startup and tunnel scripts
+COPY start-comfyui.sh /start-comfyui.sh
+COPY reverse-tunnel.sh /reverse-tunnel.sh
+RUN chmod +x /start-comfyui.sh /reverse-tunnel.sh
+
+EXPOSE 8188
+
+VOLUME ["/opt/comfyui/models", "/opt/comfyui/input", "/opt/comfyui/output", "/opt/comfyui/custom_nodes"]
+
+HEALTHCHECK --interval=30s --timeout=10s --start-period=60s --retries=3 \
+    CMD curl -f http://localhost:8188/ || exit 1
+
+USER comfyui
+ENV PREVIEW_METHOD=taesd
+
+CMD ["/start-comfyui.sh"]

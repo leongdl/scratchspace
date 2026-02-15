@@ -43,6 +43,11 @@ RUN git clone https://github.com/kijai/ComfyUI-Hunyuan3DWrapper.git \
     /opt/comfyui/custom_nodes/ComfyUI-Hunyuan3DWrapper && \
     chown -R comfyui:comfyui /opt/comfyui/custom_nodes/ComfyUI-Hunyuan3DWrapper
 
+# Install ComfyUI Manager for file downloads and management
+RUN git clone https://github.com/ltdrdata/ComfyUI-Manager.git \
+    /opt/comfyui/custom_nodes/ComfyUI-Manager && \
+    chown -R comfyui:comfyui /opt/comfyui/custom_nodes/ComfyUI-Manager
+
 USER comfyui
 RUN pip install --user -r /opt/comfyui/custom_nodes/ComfyUI-Hunyuan3DWrapper/requirements.txt || true
 

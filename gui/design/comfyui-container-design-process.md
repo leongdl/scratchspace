@@ -99,6 +99,37 @@ For each node, find the model loading class and answer:
 | No mention of DINOv3 | Required, raises exception if missing |
 | No mention of TRELLIS-image-large ss_dec | Required, auto-downloads if missing |
 
+## Step 3b: Verify Weights Are Baked After Build
+
+After `docker build` completes, verify the model weights are actually present in the image. The image may be too large for `docker run` to start quickly, so use `docker history` instead:
+
+```bash
+docker history <image>:latest
+```
+
+Check that each `wget` / `snapshot_download` / `COPY` layer shows the expected file size:
+
+| Expected Layer | Approximate Size |
+|----------------|-----------------|
+| Diffusion model download | Matches HuggingFace file size (e.g. ~28GB for Wan 14B) |
+| VAE download | ~200-500MB |
+| Text encoder download | ~5-12GB depending on model |
+| snapshot_download (multi-file) | Sum of all repo files |
+
+If a download layer shows 0B or a suspiciously small size, the download failed silently (e.g. got an HTML error page instead of the weights).
+
+For containers small enough to start quickly, you can also verify directly:
+
+```bash
+docker run --rm <image>:latest ls -lh /opt/comfyui/models/<path>/
+```
+
+Or check file integrity with a quick size sanity check:
+
+```bash
+docker run --rm <image>:latest find /opt/comfyui/models -name "*.safetensors" -exec ls -lh {} \;
+```
+
 ## Step 4: Write Verified README
 
 Structure the README with these sections:
@@ -152,5 +183,35 @@ grep -rn "models_dir" nodes.py
 |------|---------|
 | `gui/comfyui/job-trellis2/README.md` | TRELLIS-2 container design with source-verified model paths |
 | `gui/comfyui/job-wanvideo/README.md` | WanVideo container design with source-verified model paths |
-| `gui/comfyui/Dockerfile.trellis2` | (pending) Dockerfile for TRELLIS-2 container |
-| `gui/comfyui/Dockerfile.wanvideo` | (pending) Dockerfile for WanVideo container |
+| `gui/comfyui/Dockerfile.trellis2` | Standalone Dockerfile for TRELLIS-2 (CUDA 12.6 + torch 2.7.0) |
+| `gui/comfyui/Dockerfile.wanvideo` | Dockerfile for WanVideo (layers on comfyui-sdxl base) |
+
+## Build Issues Encountered
+
+### WanVideo — Clean Build
+WanVideo layers on `comfyui-sdxl:latest` (torch 2.6.0 + cu124). All models use standard `folder_paths` and download via `wget`. No issues.
+
+### TRELLIS-2 — Required Standalone Image
+
+The TRELLIS-2 container could not layer on the existing `comfyui-sdxl:latest` base due to dependency conflicts:
+
+1. **Torch version mismatch**: The Trellis2 pre-built wheels (cumesh, nvdiffrast, flex_gemm, o_voxel) require torch 2.7.0. The base image ships torch 2.6.0+cu124, and torch 2.7.0 is not available for cu124 — only cu126.
+
+2. **CUDA toolkit mismatch**: Attempting to install torch 2.7.0+cu126 on the cu124 base caused `undefined symbol: cudaGetDriverEntryPointByVersion` errors because the CUDA 12.4 toolkit lacks symbols torch 2.7.0+cu126 expects.
+
+3. **xformers version pinning**: Unpinned `pip install xformers` pulled torch 2.10.0, breaking all torch 2.7.0 wheel compatibility. Fixed by pinning `xformers==0.0.30`.
+
+4. **o_voxel vs cumesh circular dependency**: The o_voxel wheel declares cumesh as a git dependency (`git+https://github.com/JeffreyXiang/CuMesh.git`), which conflicts with the local cumesh wheel. Fixed with `pip install --no-deps`.
+
+5. **DINOv3 gated repo**: `facebook/dinov3-vitl16-pretrain-lvd1689m` is a gated HuggingFace repo requiring authentication. Added `HF_TOKEN` build arg. Additionally, Facebook requires **manual review** of access requests — this is not instant and can take hours or days. No ungated alternative exists; DINOv3 is architecturally required by TRELLIS-2 as its image feature extractor. A SourceForge mirror exists at https://sourceforge.net/projects/dinov3.mirror/ as a fallback.
+
+**Resolution**: Created a standalone Dockerfile using `nvidia/cuda:12.6.3-devel-rockylinux9` as the base, installing torch 2.7.0+cu126 from scratch. This avoids all CUDA/torch version conflicts.
+
+### Lesson for the Skill
+
+When containerizing ComfyUI nodes with native CUDA extensions (wheels compiled against specific torch versions):
+- Check the wheel filenames for torch version requirements (e.g., `wheels/Linux/Torch270/`)
+- Match the CUDA base image to the torch index URL (cu124 → CUDA 12.4, cu126 → CUDA 12.6)
+- Pin xformers to a version compatible with your torch version
+- Use `--no-deps` for wheels with circular or git-based dependencies
+- Check if any HuggingFace repos are gated before assuming `snapshot_download` will work without auth
