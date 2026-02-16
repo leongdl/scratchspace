@@ -215,3 +215,119 @@ When containerizing ComfyUI nodes with native CUDA extensions (wheels compiled a
 - Pin xformers to a version compatible with your torch version
 - Use `--no-deps` for wheels with circular or git-based dependencies
 - Check if any HuggingFace repos are gated before assuming `snapshot_download` will work without auth
+
+## Runtime Debugging & Triage
+
+### Host Setup: NVIDIA Driver 580.x BPF Device Filter Bug
+
+When running containers with `--gpus all` on NVIDIA driver 580.x (kernel 6.1.x), Docker fails with:
+
+```
+nvidia-container-cli: mount error: failed to add device rules:
+unable to generate new device filter program from existing programs:
+load program: invalid argument: last insn is not an exit or jmp
+```
+
+This is a known incompatibility between the legacy device cgroup BPF filter and newer kernel BPF verifiers. Upgrading nvidia-container-toolkit from 1.18.1 to 1.18.2 does not fix it.
+
+**Solution**: Use `--runtime=nvidia` with environment variables instead of `--gpus all`:
+
+```bash
+# Broken on driver 580.x
+docker run --gpus all ...
+
+# Working alternative
+docker run --runtime=nvidia \
+  -e NVIDIA_VISIBLE_DEVICES=all \
+  -e NVIDIA_DRIVER_CAPABILITIES=compute,utility \
+  ...
+```
+
+Also generate a CDI spec as a prerequisite:
+
+```bash
+sudo nvidia-ctk cdi generate --output=/etc/cdi/nvidia.yaml
+```
+
+Full host setup documented in `gui/design/host_config.md` and scripted in `gui/design/setup_gpu_docker.sh`.
+
+### Container Startup: Slow `docker run` on Large Images
+
+For images >50GB (e.g. comfyui-wanvideo at 140GB total), `docker run -d` can take 10-20+ minutes before the container appears in `docker ps`. Docker is preparing the overlay filesystem — not stuck.
+
+**How to tell it's still working** (not hung):
+```bash
+# Disk usage should be growing
+df -h /
+
+# docker run process should still be alive
+ps aux | grep "docker run"
+
+# I/O activity on the volume
+iostat -x 1 1
+```
+
+**Root cause**: Default gp3 EBS volumes ship with 125 MB/s throughput and 3000 IOPS. Unpacking 140GB of image layers at 125 MB/s takes ~18 minutes just for sequential I/O.
+
+**Mitigation options** (can be applied live without reboot):
+
+| Option | Change | Cost Impact |
+|--------|--------|-------------|
+| Increase gp3 throughput | 125 → 1000 MB/s | +$35/month |
+| Increase gp3 IOPS | 3000 → 9000+ | +$30/month (for 9000) |
+| Use instance store NVMe | Mount nvme1n1 as Docker root | Free (if available on instance type) |
+
+To modify EBS live: EC2 Console → Volumes → Modify Volume → change throughput/IOPS. Takes a few minutes to apply, no reboot needed.
+
+**Instance store alternative**: Some instance types (g6e, p4d) include local NVMe SSDs that appear as unused disks (e.g. `nvme1n1`). These are much faster than EBS for Docker layer operations:
+
+```bash
+# Check for unused NVMe
+lsblk -o NAME,SIZE,TYPE,MOUNTPOINT
+
+# Format and mount as Docker storage
+sudo mkfs.xfs /dev/nvme1n1
+sudo mkdir -p /mnt/docker
+sudo mount /dev/nvme1n1 /mnt/docker
+# Then configure Docker: "data-root": "/mnt/docker" in /etc/docker/daemon.json
+```
+
+Note: Instance store is ephemeral — data is lost on stop/terminate.
+
+### Container Startup: Verifying ComfyUI Is Ready
+
+Once the container appears in `docker ps`, check logs for successful startup:
+
+```bash
+docker logs <container-name> 2>&1 | tail -30
+```
+
+**Healthy startup indicators**:
+- `ComfyUI version: X.Y.Z` — core loaded
+- `Import times for custom nodes:` — nodes loaded
+- `Assets scan(roots=['models']) completed` — models discovered
+- `To see the GUI go to: http://0.0.0.0:8188` — server ready
+
+**Common warnings that are safe to ignore**:
+- `Could not load sageattention` — optional acceleration, not required
+- `FantasyPortrait nodes not available: No module named 'onnx'` — unrelated optional feature
+- `User settings have been changed to be stored on the server` — first-run migration
+
+**Failure indicators**:
+- `ModuleNotFoundError` for core dependencies — pip install failed during build
+- `FileNotFoundError` for model paths — weights not baked to correct location
+- Container exits immediately — check `docker logs` and `docker inspect --format='{{.State.ExitCode}}'`
+
+### Ghost Container References
+
+If `docker run` fails with "container name already in use" but `docker ps -a` shows nothing:
+
+```bash
+# Docker's internal state is stale — restart the daemon
+sudo systemctl restart docker
+
+# Then retry
+docker run -d --name comfyui-session ...
+```
+
+This can happen when a previous `docker run` was interrupted (e.g. timeout, Ctrl+C) before Docker finished creating the container.

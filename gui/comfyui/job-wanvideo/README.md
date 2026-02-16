@@ -120,23 +120,91 @@ Source: [CivitAI Wan Resource List — VRAM Considerations](https://civitai.com/
 | g5.xlarge | A10G | 24GB | ❌ Insufficient VRAM for 14B |
 | g6.xlarge | L4 | 24GB | ❌ Insufficient VRAM for 14B |
 
+## Host Setup
+
+Before building or running, the host needs Docker + NVIDIA Container Toolkit configured. See `gui/design/host_config.md` for full details, or run `gui/design/setup_gpu_docker.sh`.
+
+Key requirements:
+- Docker 25.x+
+- nvidia-container-toolkit 1.18.2+ (1.18.1 has BPF bug with driver 580.x)
+- CDI spec generated: `sudo nvidia-ctk cdi generate --output=/etc/cdi/nvidia.yaml`
+- Current user in docker group: `sudo usermod -aG docker $USER`
+
 ## Build
 
+Requires building the full image chain in order:
+
 ```bash
-# Layers on comfyui-sdxl:latest (torch 2.6.0+cu124) — clean build, no dependency issues
+cd gui/comfyui
+
+# 1. Base image (~19GB, ~5 min)
+docker build -t comfyui-rocky:latest .
+
+# 2. SDXL layer (~46GB total, ~5 min — downloads ~13GB models)
+docker build -f Dockerfile.sdxl -t comfyui-sdxl:latest .
+
+# 3. WanVideo layer (~140GB total, ~10 min — downloads ~38GB models)
 docker build -f Dockerfile.wanvideo -t comfyui-wanvideo:latest .
 ```
 
 Build is straightforward — all models are public ungated HuggingFace repos downloaded via `wget`, and the WanVideoWrapper requirements install cleanly against the base image's torch 2.6.0+cu124. No HF_TOKEN needed. No native CUDA extensions to compile.
 
-Total image size: ~50GB (base ~12GB + SDXL ~7GB + Wan 14B ~28GB + VAE ~300MB + UMT5 ~9.5GB + deps).
+Total image size reported by Docker: ~140GB (includes all parent layers). Actual new data: ~50GB (base ~12GB + SDXL ~7GB + Wan 14B ~28GB + VAE ~300MB + UMT5 ~9.5GB + deps).
 
 ## Run (Standalone)
 
+**Do not use `--gpus all`** — it fails on NVIDIA driver 580.x due to a BPF device filter bug. Use `--runtime=nvidia` instead:
+
 ```bash
-docker run --gpus all -p 8188:8188 \
-    -v ./output:/opt/comfyui/output \
+docker run -d \
+    --runtime=nvidia \
+    -e NVIDIA_VISIBLE_DEVICES=all \
+    -e NVIDIA_DRIVER_CAPABILITIES=compute,utility \
+    --network host \
+    --name comfyui-session \
     comfyui-wanvideo:latest
+```
+
+Note: First `docker run` on a 140GB image takes 10-20+ minutes on default gp3 EBS (125 MB/s throughput). Docker is preparing the overlay filesystem. Monitor with `df -h /` (disk usage should grow) and `ps aux | grep "docker run"` (process should be alive). See "Startup Performance" below.
+
+Access ComfyUI at `http://localhost:8188` once the container is healthy.
+
+### Startup Performance
+
+Default gp3 EBS (3000 IOPS / 125 MB/s) makes first container start very slow for large images. Recommended EBS tuning (can be applied live in EC2 Console → Volumes → Modify):
+
+| Setting | Default | Recommended |
+|---------|---------|-------------|
+| Throughput | 125 MB/s | 1000 MB/s (+$35/mo) |
+| IOPS | 3000 | 9000 (+$30/mo) |
+
+Alternative: If the instance has a local NVMe instance store (check `lsblk`), mount it as Docker's data root for much faster I/O at no extra cost.
+
+### Verifying Startup
+
+```bash
+# Check container status
+docker ps -a
+
+# Watch logs
+docker logs -f comfyui-session
+
+# Healthy when you see:
+#   "Assets scan(roots=['models']) completed" — models found
+#   "To see the GUI go to: http://0.0.0.0:8188" — ready
+```
+
+Safe-to-ignore warnings:
+- `Could not load sageattention` — optional acceleration
+- `FantasyPortrait nodes not available: No module named 'onnx'` — unrelated feature
+
+### Cleanup / Restart
+
+```bash
+docker stop comfyui-session
+docker rm comfyui-session
+# If "name already in use" but docker ps -a shows nothing (ghost ref):
+sudo systemctl restart docker
 ```
 
 ## Pipeline
@@ -162,22 +230,34 @@ docker push 224071664257.dkr.ecr.us-west-2.amazonaws.com/comfyui-wanvideo:latest
 
 ## Build Summary
 
-Built and verified locally. All layers cached.
+Built and verified locally on g6e.xlarge (L40S 48GB, Amazon Linux 2023, driver 580.126.09).
 
 | Layer | Size | Description |
 |-------|------|-------------|
-| Base (Rocky Linux) | 176MB | OS layer |
-| CUDA 12.4 + Python 3.12 + ComfyUI + torch 2.6.0 | ~19GB | Base runtime from `comfyui-sdxl:latest` |
-| SDXL checkpoints (inherited) | ~13GB | SDXL models from base image |
+| Base (Rocky Linux 9) | 176MB | OS layer |
+| CUDA 12.4 + Python 3.12 + ComfyUI + torch 2.6.0 | ~19GB | Base runtime (`comfyui-rocky:latest`) |
+| SDXL checkpoints (inherited) | ~27GB | SDXL models from `comfyui-sdxl:latest` |
 | ComfyUI-WanVideoWrapper (git clone) | 67MB | Custom node |
 | pip requirements | 331MB | ftfy, accelerate, einops, diffusers, etc. |
-| wan2.1_t2v_14B_fp16.safetensors | 28.6GB | Diffusion model |
+| wan2.1_t2v_14B_fp16.safetensors | 28.6GB | Diffusion model (3.7 min download) |
 | wan_2.1_vae.safetensors | 254MB | VAE decoder |
-| umt5_xxl_fp16.safetensors | 11.4GB | Text encoder |
+| umt5_xxl_fp16.safetensors | 11.4GB | Text encoder (1.6 min download) |
 | chown (ownership fix) | 53.6GB | Metadata-only layer (no new data) |
+| Image export | ~11 min | Writing layers to disk (slow on default gp3) |
 
+Docker-reported image size: `140GB` (includes all parent layers)
 Image: `comfyui-wanvideo:latest`
-SHA: `7055c2b5106c`
+SHA: `ab3bc564a248`
+
+### Build Chain Timing (g6e.xlarge, default gp3 EBS)
+
+| Step | Time | Notes |
+|------|------|-------|
+| comfyui-rocky:latest | ~6 min | CUDA toolkit install is heaviest |
+| comfyui-sdxl:latest | ~5 min | ~13GB model downloads + 2 min export |
+| comfyui-wanvideo:latest | ~17 min | ~38GB model downloads + 11 min export |
+| First `docker run` | ~15 min | Overlay filesystem setup (one-time) |
+| Total cold start | ~43 min | From bare host to running ComfyUI |
 
 ## References
 
