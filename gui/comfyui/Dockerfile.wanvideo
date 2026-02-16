@@ -44,6 +44,10 @@ RUN wget -q --show-progress -O /opt/comfyui/models/vae/wan_2.1_vae.safetensors \
 RUN wget -q --show-progress -O /opt/comfyui/models/text_encoders/umt5_xxl_fp16.safetensors \
     "https://huggingface.co/Comfy-Org/Wan_2.1_ComfyUI_repackaged/resolve/main/split_files/text_encoders/umt5_xxl_fp16.safetensors"
 
+# Bake TAESD Wan 2.1 preview model (~5MB) for fast previews during sampling
+RUN wget -q --show-progress -O /opt/comfyui/models/vae_approx/taew2_1.safetensors \
+    "https://huggingface.co/Kijai/WanVideo_comfy/resolve/main/taew2_1.safetensors"
+
 # Set proper ownership
 RUN chown -R comfyui:comfyui /opt/comfyui/models /opt/comfyui/custom_nodes
 
