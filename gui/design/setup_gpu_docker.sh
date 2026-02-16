@@ -30,6 +30,15 @@ sudo nvidia-ctk runtime configure --runtime=docker
 echo "=== Generating CDI spec (workaround for driver 580.x BPF bug) ==="
 sudo nvidia-ctk cdi generate --output=/etc/cdi/nvidia.yaml
 
+echo "=== Creating 32GB swap (required for mmap of 28GB model files on 30GB RAM instances) ==="
+if [ ! -f /swapfile ]; then
+  sudo fallocate -l 32G /swapfile
+  sudo chmod 600 /swapfile
+  sudo mkswap /swapfile
+fi
+sudo swapon /swapfile 2>/dev/null || true
+echo "/swapfile swap swap defaults 0 0" | sudo tee -a /etc/fstab
+
 echo "=== Restarting Docker ==="
 sudo systemctl restart docker
 

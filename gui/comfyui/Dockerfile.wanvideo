@@ -17,8 +17,14 @@ RUN git clone --depth 1 https://github.com/kijai/ComfyUI-WanVideoWrapper.git \
     /opt/comfyui/custom_nodes/ComfyUI-WanVideoWrapper && \
     chown -R comfyui:comfyui /opt/comfyui/custom_nodes/ComfyUI-WanVideoWrapper
 
+# Install ComfyUI-VideoHelperSuite for MP4/video output
+RUN git clone --depth 1 https://github.com/Kosinkadink/ComfyUI-VideoHelperSuite.git \
+    /opt/comfyui/custom_nodes/ComfyUI-VideoHelperSuite && \
+    chown -R comfyui:comfyui /opt/comfyui/custom_nodes/ComfyUI-VideoHelperSuite
+
 USER comfyui
-RUN pip install --user -r /opt/comfyui/custom_nodes/ComfyUI-WanVideoWrapper/requirements.txt
+RUN pip install --user -r /opt/comfyui/custom_nodes/ComfyUI-WanVideoWrapper/requirements.txt && \
+    pip install --user -r /opt/comfyui/custom_nodes/ComfyUI-VideoHelperSuite/requirements.txt
 
 USER root
 

@@ -80,6 +80,20 @@ Required for driver 580.x which hits a BPF device filter bug with the legacy `--
 sudo nvidia-ctk cdi generate --output=/etc/cdi/nvidia.yaml
 ```
 
+## Step 7: Create Swap (Required for Large Model Loading)
+
+The Wan 2.1 14B model (28GB) must be memory-mapped before loading to GPU. On g6e.xlarge (30GB RAM), this fails with `Cannot allocate memory` without swap.
+
+```bash
+sudo fallocate -l 32G /swapfile
+sudo chmod 600 /swapfile
+sudo mkswap /swapfile
+sudo swapon /swapfile
+echo "/swapfile swap swap defaults 0 0" | sudo tee -a /etc/fstab
+```
+
+This gives 30GB RAM + 32GB swap = 62GB virtual memory, enough to mmap the 28GB safetensors file. The model loads to GPU VRAM for inference — swap is only needed for the initial file read.
+
 ## Known Issue: `--gpus all` BPF Error with Driver 580.x
 
 The standard `--gpus all` flag fails with NVIDIA driver 580.126.09 on kernel 6.1.x:

@@ -109,26 +109,36 @@ Source: [BadAss Wan Resource List (CivitAI)](https://civitai.com/articles/16983/
 
 Requires 48GB VRAM (L40S). The 14B model uses the full GPU.
 
+**System RAM**: The 28GB model file must be memory-mapped before loading to GPU. On instances with ≤32GB RAM (e.g. g6e.xlarge with 30GB), this fails with `Cannot allocate memory` unless swap is configured. See Host Setup below.
+
 Source: [CivitAI Wan Resource List — VRAM Considerations](https://civitai.com/articles/16983/badass-wan-resource-list)
 
 ## Hardware Target
 
-| Instance | GPU | VRAM | Status |
-|----------|-----|------|--------|
-| g6e.xlarge | L40S | 48GB | ✅ Primary target |
-| p4d.24xlarge | A100 | 40GB | ✅ |
-| g5.xlarge | A10G | 24GB | ❌ Insufficient VRAM for 14B |
-| g6.xlarge | L4 | 24GB | ❌ Insufficient VRAM for 14B |
+| Instance | GPU | VRAM | RAM | Status |
+|----------|-----|------|-----|--------|
+| g6e.xlarge | L40S | 48GB | 30GB | ✅ Primary target (needs 32GB swap) |
+| g6e.2xlarge | L40S | 48GB | 64GB | ✅ No swap needed |
+| p4d.24xlarge | A100 | 40GB | 1152GB | ✅ |
+| g5.xlarge | A10G | 24GB | 16GB | ❌ Insufficient VRAM for 14B |
+| g6.xlarge | L4 | 24GB | 16GB | ❌ Insufficient VRAM for 14B |
 
 ## Host Setup
 
-Before building or running, the host needs Docker + NVIDIA Container Toolkit configured. See `gui/design/host_config.md` for full details, or run `gui/design/setup_gpu_docker.sh`.
+Before building or running, the host needs Docker + NVIDIA Container Toolkit + swap configured. See `gui/design/host_config.md` for full details, or run `gui/design/setup_gpu_docker.sh`.
 
 Key requirements:
 - Docker 25.x+
 - nvidia-container-toolkit 1.18.2+ (1.18.1 has BPF bug with driver 580.x)
 - CDI spec generated: `sudo nvidia-ctk cdi generate --output=/etc/cdi/nvidia.yaml`
 - Current user in docker group: `sudo usermod -aG docker $USER`
+- 32GB swap file (required for mmap of 28GB model on ≤32GB RAM instances):
+  ```bash
+  sudo fallocate -l 32G /swapfile
+  sudo chmod 600 /swapfile
+  sudo mkswap /swapfile
+  sudo swapon /swapfile
+  ```
 
 ## Build
 
