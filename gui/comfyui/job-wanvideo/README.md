@@ -6,6 +6,22 @@ ComfyUI container for AI video generation using the Wan 2.1 T2V 14B model (fp16)
 
 Only one container runs at a time — swap between TRELLIS-2 and WanVideo as needed.
 
+## Available Variants
+
+This is the full-precision 14B variant. Two lighter alternatives are available:
+
+| Variant | Dockerfile | Image Size | VRAM | Min GPU | Quality |
+|---------|-----------|------------|------|---------|---------|
+| 14B fp16 (this) | `Dockerfile.wanvideo` | ~140GB | ~40GB | L40S 48GB | Best |
+| 14B fp8 | `Dockerfile.wanvideo-fp8` | ~107GB | ~20-24GB | L4 24GB | Near-best |
+| 1.3B fp16 | `Dockerfile.wanvideo-1.3b` | ~115GB | ~8GB | L4 24GB | Good for prototyping |
+
+See `job-wanvideo-fp8/` and `job-wanvideo-1.3b/` for details on each variant.
+
+Notes:
+- The fp8 variant uses `wan2.1_t2v_14B_fp8_scaled` (best fp8 quality) with the fp16 text encoder. The fp8 text encoder (`umt5_xxl_fp8_e4m3fn_scaled`) is NOT supported by WanVideoWrapper's `LoadWanVideoT5TextEncoder` node.
+- All variants share the same VAE, custom nodes, and base image chain (`comfyui-rocky` → `comfyui-sdxl`).
+
 ## Models
 
 | Model | Source | Parameters | Size | Purpose |

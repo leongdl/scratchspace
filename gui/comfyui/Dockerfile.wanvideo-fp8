@@ -1,0 +1,62 @@
+# ComfyUI with WanVideo 2.1 T2V 14B fp8 (quantized) pre-baked
+# Build: docker build -f Dockerfile.wanvideo-fp8 -t comfyui-wanvideo-fp8:latest .
+# Requires: comfyui-sdxl:latest base image
+# VRAM: ~20-24GB inference (fits on L4 24GB, A10G 24GB, or L40S 48GB)
+#
+# This is the quantized version of the 14B model — half the file size of fp16
+# with minimal quality loss. Best balance of quality vs VRAM for 24GB GPUs.
+# Quality rank: fp16 > fp8_scaled > fp8_e4m3fn (we use fp8_scaled here)
+
+FROM comfyui-sdxl:latest
+
+USER root
+
+# Create required model directories
+RUN mkdir -p \
+    /opt/comfyui/models/diffusion_models \
+    /opt/comfyui/models/text_encoders
+
+# Install ComfyUI-WanVideoWrapper custom node
+RUN git clone --depth 1 https://github.com/kijai/ComfyUI-WanVideoWrapper.git \
+    /opt/comfyui/custom_nodes/ComfyUI-WanVideoWrapper && \
+    chown -R comfyui:comfyui /opt/comfyui/custom_nodes/ComfyUI-WanVideoWrapper
+
+# Install ComfyUI-VideoHelperSuite for MP4/video output
+RUN git clone --depth 1 https://github.com/Kosinkadink/ComfyUI-VideoHelperSuite.git \
+    /opt/comfyui/custom_nodes/ComfyUI-VideoHelperSuite && \
+    chown -R comfyui:comfyui /opt/comfyui/custom_nodes/ComfyUI-VideoHelperSuite
+
+USER comfyui
+RUN pip install --user -r /opt/comfyui/custom_nodes/ComfyUI-WanVideoWrapper/requirements.txt && \
+    pip install --user -r /opt/comfyui/custom_nodes/ComfyUI-VideoHelperSuite/requirements.txt
+
+USER root
+
+# Bake Wan 2.1 T2V 14B fp8_scaled diffusion model (~13.3GB)
+# fp8_scaled has better quality than fp8_e4m3fn — recommended fp8 variant
+# Source: https://huggingface.co/Comfy-Org/Wan_2.1_ComfyUI_repackaged
+RUN wget -q --show-progress -O /opt/comfyui/models/diffusion_models/wan2.1_t2v_14B_fp8_scaled.safetensors \
+    "https://huggingface.co/Comfy-Org/Wan_2.1_ComfyUI_repackaged/resolve/main/split_files/diffusion_models/wan2.1_t2v_14B_fp8_scaled.safetensors"
+
+# Bake Wan 2.1 VAE (~300MB) — same VAE as fp16 variant
+RUN wget -q --show-progress -O /opt/comfyui/models/vae/wan_2.1_vae.safetensors \
+    "https://huggingface.co/Comfy-Org/Wan_2.1_ComfyUI_repackaged/resolve/main/split_files/vae/wan_2.1_vae.safetensors"
+
+# Bake UMT5-XXL fp16 text encoder (~10.6GB)
+# Note: fp8_scaled text encoder is NOT supported by WanVideoWrapper's LoadWanVideoT5TextEncoder node.
+# Using fp16 instead — the text encoder is offloaded after encoding so it doesn't compete for VRAM during inference.
+RUN wget -q --show-progress -O /opt/comfyui/models/text_encoders/umt5_xxl_fp16.safetensors \
+    "https://huggingface.co/Comfy-Org/Wan_2.1_ComfyUI_repackaged/resolve/main/split_files/text_encoders/umt5_xxl_fp16.safetensors"
+
+# Bake TAESD Wan 2.1 preview model (~5MB) for fast previews during sampling
+RUN wget -q --show-progress -O /opt/comfyui/models/vae_approx/taew2_1.safetensors \
+    "https://huggingface.co/Kijai/WanVideo_comfy/resolve/main/taew2_1.safetensors"
+
+# Set proper ownership
+RUN chown -R comfyui:comfyui /opt/comfyui/models /opt/comfyui/custom_nodes
+
+USER comfyui
+
+ENV PREVIEW_METHOD=taesd
+# --disable-smart-memory still useful — 13.3GB model + 6.3GB encoder is tight on 24GB GPU
+ENV EXTRA_ARGS="--disable-smart-memory"
