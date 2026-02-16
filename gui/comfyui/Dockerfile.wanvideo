@@ -54,3 +54,6 @@ RUN chown -R comfyui:comfyui /opt/comfyui/models /opt/comfyui/custom_nodes
 USER comfyui
 
 ENV PREVIEW_METHOD=taesd
+# --disable-smart-memory prevents ComfyUI from keeping model copies in CPU RAM
+# Critical on g6e.xlarge (30GB RAM) where the 28GB model leaves no headroom
+ENV EXTRA_ARGS="--disable-smart-memory"
