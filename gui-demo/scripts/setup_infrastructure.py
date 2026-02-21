@@ -289,10 +289,9 @@ def create_ec2_instance(ec2, ssm_client, sg_id: str, key_name: str) -> dict:
     ami_id = resolve_ami(ssm_client)
     print(f"  AMI: {ami_id}")
 
-    resp = ec2.run_instances(
+    launch_params = dict(
         ImageId=ami_id,
         InstanceType=CONFIG["instance_type"],
-        KeyName=key_name,
         MinCount=1,
         MaxCount=1,
         SubnetId=CONFIG["subnet_id"],
@@ -305,6 +304,10 @@ def create_ec2_instance(ec2, ssm_client, sg_id: str, key_name: str) -> dict:
         # Enable SSM access via instance profile if available
         MetadataOptions={"HttpTokens": "required", "HttpEndpoint": "enabled"},
     )
+    if key_name:
+        launch_params["KeyName"] = key_name
+
+    resp = ec2.run_instances(**launch_params)
     instance = resp["Instances"][0]
     inst_id = instance["InstanceId"]
     print(f"✓ Launched {inst_id} ({CONFIG['instance_type']})")
@@ -467,6 +470,7 @@ def main():
     parser = argparse.ArgumentParser(description="Setup EC2 proxy + VPC Lattice for Deadline VNC access")
     parser.add_argument("--create", action="store_true", help="Create all resources")
     parser.add_argument("--output", default="gui-demo/resources.json", help="Output JSON path (default: gui-demo/resources.json)")
+    parser.add_argument("--key-pair", action="store_true", default=False, help="Create an SSH key pair for the EC2 instance (default: False, use SSM instead)")
     args = parser.parse_args()
 
     ec2, vpc_lattice, ram, ssm_client, sts, ecr = get_clients()
@@ -505,7 +509,12 @@ def main():
     # --- Create everything ---
     ecr_repo = create_ecr_repo(ecr)
     sg_id = create_security_group(ec2)
-    key_name = create_key_pair(ec2)
+    key_name = None
+    if args.key_pair:
+        key_name = create_key_pair(ec2)
+    else:
+        print("\n=== SSH Key Pair ===")
+        print("○ Skipped (using SSM access). Pass --key-pair to create one.")
     instance = create_ec2_instance(ec2, ssm_client, sg_id, key_name)
     private_ip = instance.get("PrivateIpAddress", "")
 
