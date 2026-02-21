@@ -6,10 +6,10 @@ parameterDefinitions:
   default: Starting Rocky Linux VNC Desktop
 - name: ECR_REGISTRY
   type: STRING
-  default: 224071664257.dkr.ecr.us-west-2.amazonaws.com
+  default: 257639634185.dkr.ecr.us-west-2.amazonaws.com
 - name: VNC_REPOSITORY
   type: STRING
-  default: sqex2
+  default: desktop-demo
 - name: VNC_TAG
   type: STRING
   default: rocky-vnc
@@ -19,7 +19,7 @@ parameterDefinitions:
 - name: EC2_PROXY_HOST
   type: STRING
   description: "VPC Lattice endpoint for the EC2 proxy instance"
-  default: "rcfg-011bc61e9efbfbd1e.resource-endpoints.deadline.us-west-2.amazonaws.com"
+  default: "rcfg-0a8ab60ee0c8594b6.resource-endpoints.deadline.us-west-2.amazonaws.com"
 - name: EC2_PROXY_USER
   type: STRING
   description: "SSH user on the EC2 proxy instance"

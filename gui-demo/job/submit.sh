@@ -2,26 +2,13 @@
 # Submit the VNC Desktop job to Deadline Cloud
 
 # Configuration
-FARM_ID="farm-fd8e9a84d9c04142848c6ea56c9d7568"
-QUEUE_ID="queue-2eb8ef58ce5d48d1bbaf3e2f65ea2c38"
+FARM_ID="farm-6c262cf737de4cb9b0c46f55f71cdaff"
+QUEUE_ID="queue-6c7f40e315a44d0abb2cc169c0b85bb9"
 SESSION_DURATION="${SESSION_DURATION:-3600}"
-ECR_REGISTRY="${ECR_REGISTRY:-224071664257.dkr.ecr.us-west-2.amazonaws.com}"
-DOCKER_REPO="${DOCKER_REPO:-sqex2}"
+ECR_REGISTRY="${ECR_REGISTRY:-257639634185.dkr.ecr.us-west-2.amazonaws.com}"
+DOCKER_REPO="${DOCKER_REPO:-desktop-demo}"
 DOCKER_TAG="${DOCKER_TAG:-rocky-vnc}"
-
-# EC2_PROXY_HOST is the VPC Lattice resource endpoint — must be set by the user.
-# Find it in resources.json after running setup_infrastructure.py, or in the
-# Deadline console under your fleet's VPC resource endpoints.
-# Example: rcfg-xxxxxxxxx.resource-endpoints.deadline.us-west-2.amazonaws.com
-if [ -z "${EC2_PROXY_HOST}" ]; then
-  echo "Error: EC2_PROXY_HOST is not set."
-  echo ""
-  echo "Set it to your VPC Lattice resource endpoint, e.g.:"
-  echo "  export EC2_PROXY_HOST=rcfg-xxxxx.resource-endpoints.deadline.us-west-2.amazonaws.com"
-  echo ""
-  echo "You can find this in gui-demo/resources.json after running setup_infrastructure.py"
-  exit 1
-fi
+EC2_PROXY_HOST="${EC2_PROXY_HOST:-rcfg-0a8ab60ee0c8594b6.resource-endpoints.deadline.us-west-2.amazonaws.com}"
 
 echo "Submitting VNC Desktop job..."
 echo "Farm: $FARM_ID"

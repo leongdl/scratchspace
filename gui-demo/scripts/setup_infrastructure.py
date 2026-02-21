@@ -230,7 +230,7 @@ def create_security_group(ec2) -> str:
     else:
         resp = ec2.create_security_group(
             GroupName=CONFIG["sg_name"],
-            Description="Deadline VNC proxy — allows SSH and VNC from VPC + VPC Lattice",
+            Description="Deadline VNC proxy - allows SSH and VNC from VPC and VPC Lattice",
             VpcId=CONFIG["vpc_id"],
         )
         sg_id = resp["GroupId"]
