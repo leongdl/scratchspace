@@ -143,6 +143,17 @@ Rocky Linux 9 based on `nvidia/cuda:12.4.0-runtime-rockylinux9`:
 
 A dedicated key pair is used for the reverse tunnel. The private key is attached to the Deadline job as a file parameter. The public key must be added to `/home/ssm-user/.ssh/authorized_keys` on the EC2 bastion.
 
+Multiple users can each generate their own key pair and add their public keys to the same `authorized_keys` file — one key per line. Each user submits jobs with their own private key as the attachment. The bastion accepts all registered keys.
+
+```
+# /home/ssm-user/.ssh/authorized_keys
+ssh-ed25519 AAAAC3... alice-workstation-key
+ssh-ed25519 AAAAC3... bob-workstation-key
+ssh-ed25519 AAAAC3... ci-pipeline-key
+```
+
+For tunnel-only use, a shared `ssm-user` account with multiple keys is sufficient. No shell access is needed — the SSH connection uses `-N` (no command execution).
+
 ### VNC Password
 
 Set to `password` in the Docker image via `vncpasswd`. Change this for production use.
@@ -159,6 +170,26 @@ The Mac connects to the EC2 via SSM Session Manager, which uses IAM authenticati
 | 6080 | Worker container → EC2 → Mac | noVNC web interface |
 | 22   | EC2 bastion | sshd (reverse tunnel endpoint) |
 | 8188 | Reserved | ComfyUI (future use) |
+
+## Failure Modes
+
+## Multi-Worker Scaling
+
+A single EC2 bastion can serve multiple workers simultaneously. Each worker opens its own reverse SSH tunnel on a unique port — sshd handles them independently.
+
+```
+Worker 1:  ssh -R 6080:localhost:6080 ssm-user@<endpoint>   →  Mac forwards port 6080
+Worker 2:  ssh -R 6081:localhost:6080 ssm-user@<endpoint>   →  Mac forwards port 6081
+Worker 3:  ssh -R 8188:localhost:8188 ssm-user@<endpoint>   →  Mac forwards port 8188
+```
+
+SSH is lightweight — a t3.micro can comfortably handle dozens of concurrent tunnels. The constraints are:
+
+1. Port allocation — each worker needs a unique remote port on the bastion. Pass it as a job parameter (e.g. `TUNNEL_PORT`).
+2. Security group — the port range must be allowed inbound. Use a range like 6080-6099 instead of individual rules.
+3. Mac-side tunnels — each session needs its own SSM port forward matching the assigned port.
+
+No changes to VPC Lattice are needed — all workers connect to the same endpoint on port 22. The port differentiation happens at the SSH `-R` level, not at the network layer.
 
 ## Failure Modes
 

@@ -10,6 +10,19 @@ DOCKER_REPO="${DOCKER_REPO:-desktop-demo}"
 DOCKER_TAG="${DOCKER_TAG:-rocky-vnc}"
 EC2_PROXY_HOST="${EC2_PROXY_HOST:-rcfg-0a8ab60ee0c8594b6.resource-endpoints.deadline.us-west-2.amazonaws.com}"
 
+# Check SSH tunnel key exists (required as job attachment)
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+if [ ! -f "$SCRIPT_DIR/vnc_tunnel_key" ]; then
+  echo "Error: vnc_tunnel_key not found in $SCRIPT_DIR"
+  echo ""
+  echo "Generate it by running from the gui-demo root:"
+  echo "  bash generate_tunnel_key.sh"
+  echo ""
+  echo "Then add the public key to the EC2 bastion:"
+  echo "  cat job/vnc_tunnel_key.pub >> /home/ssm-user/.ssh/authorized_keys"
+  exit 1
+fi
+
 echo "Submitting VNC Desktop job..."
 echo "Farm: $FARM_ID"
 echo "Queue: $QUEUE_ID"

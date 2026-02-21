@@ -89,6 +89,9 @@ steps:
         # Start the VNC container with host networking
         echo "Starting VNC container with --network host..."
         CONTAINER_ID=$(docker run -d \
+          --runtime=nvidia \
+          -e NVIDIA_VISIBLE_DEVICES=all \
+          -e NVIDIA_DRIVER_CAPABILITIES=compute,utility,graphics \
           --network host \
           --name rocky-vnc-desktop \
           {{Param.ECR_REGISTRY}}/{{Param.VNC_REPOSITORY}}:{{Param.VNC_TAG}})

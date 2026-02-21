@@ -43,23 +43,29 @@ bash generate_tunnel_key.sh
 python3 scripts/setup_infrastructure.py --create
 
 # 3. Add the public key to the EC2 bastion
-#    (via SSM or the EC2 serial console)
-cat job/vnc_tunnel_key.pub >> /home/ssm-user/.ssh/authorized_keys
+#    (via SSM — the ssm-user is created automatically on first session)
+source creds.sh
+aws ssm send-command --instance-ids i-0227d51eeadb27c64 --region us-west-2 \
+  --document-name "AWS-RunShellScript" \
+  --parameters "commands=[\"id ssm-user 2>/dev/null || useradd -m ssm-user\",\"mkdir -p /home/ssm-user/.ssh\",\"cat job/vnc_tunnel_key.pub >> /home/ssm-user/.ssh/authorized_keys\",\"chmod 700 /home/ssm-user/.ssh\",\"chmod 600 /home/ssm-user/.ssh/authorized_keys\",\"chown -R ssm-user:ssm-user /home/ssm-user/.ssh\"]"
 
 # 4. Build and push Docker image
 cd docker
 docker build -t rocky-vnc:latest -f Dockerfile.rocky .
-docker tag rocky-vnc:latest 224071664257.dkr.ecr.us-west-2.amazonaws.com/sqex2:rocky-vnc
-docker push 224071664257.dkr.ecr.us-west-2.amazonaws.com/sqex2:rocky-vnc
+docker tag rocky-vnc:latest 257639634185.dkr.ecr.us-west-2.amazonaws.com/desktop-demo:rocky-vnc
+aws ecr get-login-password --region us-west-2 | docker login --username AWS --password-stdin 257639634185.dkr.ecr.us-west-2.amazonaws.com
+docker push 257639634185.dkr.ecr.us-west-2.amazonaws.com/desktop-demo:rocky-vnc
 
 # 5. Attach VPC Lattice resource config to your Deadline fleet (console)
+#    ARN: arn:aws:vpc-lattice:us-west-2:257639634185:resourceconfiguration/rcfg-0a8ab60ee0c8594b6
 
 # 6. Submit the job
 cd ../job
+export EC2_PROXY_HOST=rcfg-0a8ab60ee0c8594b6.resource-endpoints.deadline.us-west-2.amazonaws.com
 bash submit.sh
 
 # 7. Connect from Mac
-aws ssm start-session --target <instance-id> --region us-west-2 \
+aws ssm start-session --target i-0227d51eeadb27c64 --region us-west-2 \
   --document-name AWS-StartPortForwardingSession \
   --parameters '{"portNumber":["6080"],"localPortNumber":["6080"]}'
 
@@ -72,6 +78,7 @@ aws ssm start-session --target <instance-id> --region us-west-2 \
 gui-demo/
 ├── README.md                          # This file
 ├── ARCHITECTURE.md                    # End-to-end technical design
+├── FARM_SETUP.md                      # Farm, fleet, queue, and infra state
 ├── .gitignore                         # Excludes keys, pems, resources.json
 ├── generate_tunnel_key.sh             # Creates SSH key pair for the reverse tunnel
 ├── docker/
@@ -92,6 +99,52 @@ gui-demo/
 ## See Also
 
 - `ARCHITECTURE.md` — how the networking, tunnels, and VPC Lattice fit together
+- `FARM_SETUP.md` — farm, fleet, queue, IAM roles, and VPC Lattice state
 - `scripts/README.md` — infrastructure setup details
 - `docker/README.md` — building and running the container
 - `job/README.md` — job template and submission
+
+## FAQ
+
+**Job fails with `cp: cannot stat ... assetroot-...: No such file or directory`**
+
+The SSH tunnel key (`vnc_tunnel_key`) is missing from the job bundle. The template expects it as a file attachment. Generate it:
+```bash
+bash generate_tunnel_key.sh
+```
+Then add the public key to the EC2 bastion (see step 3 in Quick Start).
+
+**Job fails with `manifest for .../desktop-demo:rocky-vnc not found`**
+
+The Docker image hasn't been pushed to ECR yet. Build, tag, and push:
+```bash
+source creds.sh
+aws ecr get-login-password --region us-west-2 | docker login --username AWS --password-stdin 257639634185.dkr.ecr.us-west-2.amazonaws.com
+cd docker
+docker build -t rocky-vnc:latest -f Dockerfile.rocky .
+docker tag rocky-vnc:latest 257639634185.dkr.ecr.us-west-2.amazonaws.com/desktop-demo:rocky-vnc
+docker push 257639634185.dkr.ecr.us-west-2.amazonaws.com/desktop-demo:rocky-vnc
+```
+
+**SSM tunnel connects but browser shows nothing**
+
+The Deadline job may still be starting, or the reverse SSH tunnel hasn't been established yet. Check the job logs in the Deadline console. The worker needs to pull the image, start the container, wait for noVNC, and then open the tunnel — this can take a few minutes on first run.
+
+## Adding Your Workstation Key
+
+Each user needs their own SSH key pair for the reverse tunnel. Generate one and register the public key on the EC2 bastion:
+
+```bash
+# 1. Generate your key (run from gui-demo/)
+bash generate_tunnel_key.sh
+# This creates job/vnc_tunnel_key and job/vnc_tunnel_key.pub
+
+# 2. Register your public key on the bastion via SSM
+source creds.sh
+PUB_KEY=$(cat job/vnc_tunnel_key.pub)
+aws ssm send-command --instance-ids i-0227d51eeadb27c64 --region us-west-2 \
+  --document-name "AWS-RunShellScript" \
+  --parameters "commands=[\"echo '$PUB_KEY' >> /home/ssm-user/.ssh/authorized_keys\"]"
+```
+
+Multiple users can each add their own key — the bastion's `authorized_keys` file accepts one key per line. No restart needed; sshd picks up new keys immediately.
