@@ -1,0 +1,83 @@
+# GPU-accelerated Rocky Linux 9 desktop with XFCE + NICE DCV
+FROM nvidia/cuda:12.4.0-runtime-rockylinux9
+
+# NVIDIA env vars so the runtime exposes GPUs
+ENV NVIDIA_VISIBLE_DEVICES=all
+ENV NVIDIA_DRIVER_CAPABILITIES=compute,utility,graphics
+
+# DCV version — bump these when a new release drops
+ARG DCV_VERSION=2024.0
+ARG DCV_BUILD=17979
+
+# Install EPEL, XFCE desktop, and DCV prerequisites
+RUN dnf install -y epel-release && \
+    dnf update -y && \
+    dnf groupinstall -y "Xfce" "base-x" && \
+    dnf install -y \
+        xterm procps-ng sudo wget tar xz \
+        libXi libXxf86vm libXfixes libXrender libGL mesa-libGL \
+        libSM libICE libXrandr xorg-x11-server-Xvfb \
+        # DCV dependencies
+        libXtst libXcomposite libXcursor libXdamage libXt libXScrnSaver \
+        libuuid dbus-x11 glx-utils mesa-dri-drivers \
+        xorg-x11-server-Xorg xorg-x11-xauth xorg-x11-xinit \
+        # Misc
+        jq ristretto && \
+    dnf clean all
+
+# Import DCV GPG key and install DCV server
+RUN rpm --import https://d1uj6qtbmh3dt5.cloudfront.net/NICE-GPG-KEY && \
+    mkdir -p /tmp/dcv-inst && \
+    wget -qO- https://d1uj6qtbmh3dt5.cloudfront.net/${DCV_VERSION}/Servers/nice-dcv-${DCV_VERSION}-${DCV_BUILD}-el9-x86_64.tgz \
+        | tar xfz - -C /tmp/dcv-inst --strip-components=1 && \
+    dnf install -y /tmp/dcv-inst/nice-dcv-server-*.rpm \
+                   /tmp/dcv-inst/nice-dcv-gl-*.x86_64.rpm \
+                   /tmp/dcv-inst/nice-dcv-web-viewer-*.rpm \
+                   /tmp/dcv-inst/nice-xdcv-*.rpm && \
+    rm -rf /tmp/dcv-inst
+
+# Download and install Blender 5.0
+RUN wget -q -O /tmp/blender.tar.xz https://download.blender.org/release/Blender5.0/blender-5.0.1-linux-x64.tar.xz && \
+    tar -xf /tmp/blender.tar.xz -C /opt && \
+    mv /opt/blender-5.0.1-linux-x64 /opt/blender && \
+    ln -s /opt/blender/blender /usr/local/bin/blender && \
+    rm /tmp/blender.tar.xz
+
+# Download sample scene
+RUN wget -q -O /tmp/blender-splash.blend https://mirrors.iu13.net/blender/demo/splash/blender-4.3-splash.blend
+
+# Create user with sudo access
+RUN useradd -m -s /bin/bash rockyuser && \
+    echo "rockyuser:rocky" | chpasswd && \
+    usermod -aG wheel rockyuser
+
+# Place Blender shortcut and sample scene on the desktop
+RUN mkdir -p /home/rockyuser/Desktop && \
+    mv /tmp/blender-splash.blend /home/rockyuser/Desktop/blender-4.3-splash.blend && \
+    printf '[Desktop Entry]\nType=Application\nName=Blender 5.0\nExec=/opt/blender/blender\nIcon=/opt/blender/blender.svg\nTerminal=false\nCategories=Graphics;\n' \
+      > /home/rockyuser/Desktop/Blender.desktop && \
+    chmod +x /home/rockyuser/Desktop/Blender.desktop && \
+    chown -R rockyuser:rockyuser /home/rockyuser/Desktop
+
+# Configure DCV for virtual sessions (no physical display needed)
+RUN mkdir -p /etc/dcv && \
+    printf '[display]\n\
+target-fps=60\n\
+enable-qu=true\n\n\
+[session-management]\n\
+virtual-session-xdcv-args="-listen tcp"\n\n\
+[connectivity]\n\
+web-port=8443\n\
+web-url-path="/"\n\
+enable-quic-frontend=true\n' > /etc/dcv/dcv.conf
+
+# Create DCV virtual session init script for XFCE
+RUN printf '#!/bin/bash\neval $(dbus-launch --sh-syntax)\nexport DBUS_SESSION_BUS_ADDRESS\nstartxfce4\n' > /usr/libexec/dcv/dcvstartxfce && \
+    chmod +x /usr/libexec/dcv/dcvstartxfce
+
+EXPOSE 8443
+
+COPY start-dcv.sh /start-dcv.sh
+RUN chmod +x /start-dcv.sh
+
+CMD ["/start-dcv.sh"]

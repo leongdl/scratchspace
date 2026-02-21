@@ -1,8 +1,13 @@
-# gui-demo — Remote VNC Desktop on Deadline Cloud
+# gui-demo — Remote GPU Desktop on Deadline Cloud
 
-Run a GPU-accelerated Rocky Linux desktop on Deadline Cloud Service-Managed Fleet workers and access it from your Mac's browser.
+Run a GPU-accelerated Rocky Linux desktop on Deadline Cloud Service-Managed Fleet workers. Two remote display options are available:
+
+- **VNC** (`Dockerfile.rocky`) — TigerVNC + noVNC, lightweight, browser-based on port 6080
+- **Amazon DCV** (`Dockerfile.rocky-nice-dcv`) — GPU-accelerated streaming, better quality, browser or native client on port 8443
 
 ## Local Testing
+
+### VNC (noVNC in browser)
 
 Build and run the container locally to verify everything works before pushing to ECR and deploying on Deadline Cloud.
 
@@ -32,6 +37,67 @@ If the host doesn't have an NVIDIA GPU, drop the runtime flags and run CPU-only:
 ```bash
 docker run -d --network host --name rocky-vnc rocky-vnc:latest
 ```
+
+### Amazon DCV (browser or native client)
+
+```bash
+# Build the image
+cd docker
+docker build -t rocky-dcv:latest -f Dockerfile.rocky-nice-dcv .
+
+# Run with GPU access
+docker run -d \
+  --runtime=nvidia --gpus all \
+  --network host \
+  --name rocky-dcv \
+  rocky-dcv:latest
+
+# Connect via browser: https://localhost:8443
+# Or via native DCV Viewer: localhost:8443
+# Credentials: rockyuser / rocky
+
+# Stop when done
+docker stop rocky-dcv && docker rm rocky-dcv
+```
+
+#### DCV License (required for EC2)
+
+DCV is free on EC2 but the instance must be able to reach the DCV license S3 bucket. The EC2 instance's IAM role needs this policy:
+
+```json
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Effect": "Allow",
+      "Action": "s3:GetObject",
+      "Resource": "arn:aws:s3:::dcv-license.<region>/*"
+    }
+  ]
+}
+```
+
+Replace `<region>` with your region (e.g. `us-west-2`). Without this, DCV will start but report "no license available" when clients connect.
+
+#### DCV via SSM Port Forward
+
+```bash
+aws ssm start-session \
+    --target <instance-id> \
+    --document-name AWS-StartPortForwardingSession \
+    --parameters '{"portNumber":["8443"],"localPortNumber":["8443"]}' \
+    --region <region>
+```
+
+Then connect at `https://localhost:8443` (browser) or `localhost:8443` (native DCV Viewer).
+
+Note: SSM tunneling is TCP-only, so DCV's QUIC/UDP transport won't be used. It falls back to WebSocket/TCP which still works well.
+
+#### Host GPU Setup
+
+The EC2 host running the container needs the NVIDIA driver, Docker, and NVIDIA Container Toolkit installed. See:
+- [Install NVIDIA GPU driver, CUDA Toolkit, NVIDIA Container Toolkit on RHEL/Rocky Linux 8/9/10](https://repost.aws/articles/ARpmJcNiCtST2A3hrrM_4R4A/install-nvidia-gpu-driver-cuda-toolkit-nvidia-container-toolkit-on-amazon-ec2-instances-running-rhel-rocky-linux-8-9-10)
+- `docker/README-nice-dcv.md` for a condensed host setup guide
 
 ## Quick Start
 
@@ -82,9 +148,12 @@ gui-demo/
 ├── .gitignore                         # Excludes keys, pems, resources.json
 ├── generate_tunnel_key.sh             # Creates SSH key pair for the reverse tunnel
 ├── docker/
-│   ├── Dockerfile.rocky               # GPU Rocky Linux + XFCE + noVNC
-│   ├── start.sh                       # Container entrypoint
-│   └── README.md
+│   ├── Dockerfile.rocky               # GPU Rocky Linux + XFCE + noVNC (VNC)
+│   ├── Dockerfile.rocky-nice-dcv      # GPU Rocky Linux + XFCE + Amazon DCV
+│   ├── start.sh                       # VNC container entrypoint
+│   ├── start-dcv.sh                   # DCV container entrypoint
+│   ├── README.md                      # VNC container docs
+│   └── README-nice-dcv.md             # DCV container docs (host setup, comparison)
 ├── job/
 │   ├── template.yaml                  # Deadline job template
 │   ├── submit.sh                      # Job submission script
@@ -101,7 +170,8 @@ gui-demo/
 - `ARCHITECTURE.md` — how the networking, tunnels, and VPC Lattice fit together
 - `FARM_SETUP.md` — farm, fleet, queue, IAM roles, and VPC Lattice state
 - `scripts/README.md` — infrastructure setup details
-- `docker/README.md` — building and running the container
+- `docker/README.md` — building and running the VNC container
+- `docker/README-nice-dcv.md` — DCV container docs, host GPU setup, DCV vs VNC comparison
 - `job/README.md` — job template and submission
 
 ## FAQ
