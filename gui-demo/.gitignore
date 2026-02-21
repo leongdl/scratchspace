@@ -1,0 +1,7 @@
+# SSH tunnel keys — never commit these
+vnc_tunnel_key
+vnc_tunnel_key.pub
+*.pem
+
+# Generated resource manifest
+resources.json
