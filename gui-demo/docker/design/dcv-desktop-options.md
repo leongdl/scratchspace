@@ -68,10 +68,17 @@ Run a GPU-accelerated remote desktop inside a Docker container using Amazon DCV 
 
 ## Key Finding
 
-DCV 2024.0's DCV-GL crashes all GTK3 desktop environments (XFCE, MATE) via LD_PRELOAD GL interception.
-DCV 2025.0 fixes this — MATE runs cleanly with `--gl on`. XFCE likely works too (not re-tested).
+DCV-GL (DCV's built-in GL interception) has issues in containers:
+- DCV 2024.0: crashes all GTK3 desktops (XFCE, MATE) via LD_PRELOAD
+- DCV 2025.0: no crashes, but DCV-GL can't find a GL vendor on Xdcv display — falls back to llvmpipe
 
-The winning combination: MATE + DCV 2025.0 + `--gl on` + `--cap-add SYS_PTRACE`
+VirtualGL is the solution for true GPU-accelerated OpenGL in containers:
+- Desktop runs on software rendering (fine for panels/file manager)
+- Individual apps get GPU acceleration via `vglrun <app>`
+- `vglrun glxinfo` confirms NVIDIA GPU rendering
+- Blender desktop shortcut uses `Exec=vglrun /opt/blender/blender`
+
+The winning combination: MATE + DCV 2025.0 + VirtualGL + `--gl off` + `--device /dev/dri:/dev/dri`
 
 ## Test Plan (ordered by likelihood of success)
 

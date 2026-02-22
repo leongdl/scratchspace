@@ -1,7 +1,7 @@
-# GPU-accelerated Rocky Linux 9 desktop with MATE + NICE DCV (DCV-GL enabled)
+# GPU-accelerated Rocky Linux 9 desktop with MATE + NICE DCV + VirtualGL
 FROM nvidia/cuda:12.4.0-runtime-rockylinux9
 
-# NVIDIA env vars so the runtime exposes GPUs
+# NVIDIA env vars
 ENV NVIDIA_VISIBLE_DEVICES=all
 ENV NVIDIA_DRIVER_CAPABILITIES=compute,utility,graphics
 
@@ -9,7 +9,7 @@ ENV NVIDIA_DRIVER_CAPABILITIES=compute,utility,graphics
 ARG DCV_VERSION=2025.0
 ARG DCV_BUILD=20103
 
-# Install EPEL, MATE desktop (no systemd dependency), and DCV prerequisites
+# Install EPEL, MATE desktop, VirtualGL, and DCV prerequisites
 RUN dnf install -y epel-release && \
     dnf config-manager --set-enabled crb && \
     dnf update -y && \
@@ -24,12 +24,17 @@ RUN dnf install -y epel-release && \
         xorg-x11-server-Xvfb \
         # GL / DCV deps
         libXi libXxf86vm libXfixes libXrender libGL mesa-libGL \
-        libSM libICE libXrandr \
+        libSM libICE libXrandr mesa-libEGL \
         libXtst libXcomposite libXcursor libXdamage libXt libXScrnSaver \
         libuuid glx-utils mesa-dri-drivers \
         # Misc
         jq && \
     dnf clean all
+
+# Install VirtualGL
+RUN wget -q -O /tmp/VirtualGL.rpm "https://sourceforge.net/projects/virtualgl/files/3.1/VirtualGL-3.1.x86_64.rpm/download" && \
+    dnf install -y /tmp/VirtualGL.rpm && \
+    rm -f /tmp/VirtualGL.rpm
 
 # Import DCV GPG key and install DCV server
 RUN rpm --import https://d1uj6qtbmh3dt5.cloudfront.net/NICE-GPG-KEY && \
@@ -52,15 +57,17 @@ RUN wget -q -O /tmp/blender.tar.xz https://download.blender.org/release/Blender5
 # Download sample scene
 RUN wget -q -O /tmp/blender-splash.blend https://mirrors.iu13.net/blender/demo/splash/blender-4.3-splash.blend
 
-# Create user with sudo access
+# Create user with sudo and video/render group access
 RUN useradd -m -s /bin/bash rockyuser && \
     echo "rockyuser:rocky" | chpasswd && \
-    usermod -aG wheel rockyuser
+    usermod -aG wheel,video rockyuser && \
+    (groupadd -g 109 render 2>/dev/null || true) && \
+    usermod -aG render rockyuser
 
 # Place Blender shortcut and sample scene on the desktop
 RUN mkdir -p /home/rockyuser/Desktop && \
     mv /tmp/blender-splash.blend /home/rockyuser/Desktop/blender-4.3-splash.blend && \
-    printf '[Desktop Entry]\nType=Application\nName=Blender 5.0\nExec=/opt/blender/blender\nIcon=/opt/blender/blender.svg\nTerminal=false\nCategories=Graphics;\n' \
+    printf '[Desktop Entry]\nType=Application\nName=Blender 5.0\nExec=vglrun /opt/blender/blender\nIcon=/opt/blender/blender.svg\nTerminal=false\nCategories=Graphics;\n' \
       > /home/rockyuser/Desktop/Blender.desktop && \
     chmod +x /home/rockyuser/Desktop/Blender.desktop && \
     chown -R rockyuser:rockyuser /home/rockyuser/Desktop
@@ -77,12 +84,14 @@ web-port=8443\n\
 web-url-path="/"\n\
 enable-quic-frontend=true\n' > /etc/dcv/dcv.conf
 
-# Pre-create XDG runtime dir for rockyuser and ICE dir
+# Pre-create XDG runtime dir and ICE dir
 RUN mkdir -p /run/user/1000 && chown rockyuser:rockyuser /run/user/1000 && chmod 700 /run/user/1000 && \
     mkdir -p /tmp/.ICE-unix && chmod 1777 /tmp/.ICE-unix
 
-# Create DCV virtual session init script for MATE
-RUN printf '#!/bin/bash\neval $(dbus-launch --sh-syntax)\nexport DBUS_SESSION_BUS_ADDRESS\nexport XDG_SESSION_TYPE=x11\nexport XDG_RUNTIME_DIR=/run/user/1000\nmate-session --disable-acceleration-check\n' > /usr/libexec/dcv/dcvstartmate && \
+# Create DCV virtual session init script — MATE desktop (software rendered)
+# GPU apps should be launched with: vglrun <app>
+# The Blender desktop shortcut already uses vglrun
+RUN printf '#!/bin/bash\neval $(dbus-launch --sh-syntax)\nexport DBUS_SESSION_BUS_ADDRESS\nexport XDG_SESSION_TYPE=x11\nexport XDG_RUNTIME_DIR=/run/user/1000\nexport VGL_DISPLAY=egl\nmate-session --disable-acceleration-check\n' > /usr/libexec/dcv/dcvstartmate && \
     chmod +x /usr/libexec/dcv/dcvstartmate
 
 EXPOSE 8443

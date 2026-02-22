@@ -19,19 +19,19 @@ for i in $(seq 1 30); do
     sleep 1
 done
 
-# Create a virtual session with DCV-GL ON
+# Create a virtual session — VirtualGL handles GPU rendering, DCV-GL off
 dcv create-session \
     --type virtual \
     --owner rockyuser \
     --user rockyuser \
     --init /usr/libexec/dcv/dcvstartmate \
-    --gl on \
+    --gl off \
     rockyuser-session
 
 echo "============================================"
 echo " DCV session ready — connect on port 8443"
 echo " User: rockyuser / Password: rocky"
-echo " Desktop: MATE with DCV-GL enabled"
+echo " Desktop: MATE + VirtualGL (GPU-accelerated)"
 echo "============================================"
 
 # Keep container alive
