@@ -1,28 +1,34 @@
-# GPU-accelerated Rocky Linux 9 desktop with XFCE + NICE DCV
+# GPU-accelerated Rocky Linux 9 desktop with MATE + NICE DCV (DCV-GL enabled)
 FROM nvidia/cuda:12.4.0-runtime-rockylinux9
 
 # NVIDIA env vars so the runtime exposes GPUs
 ENV NVIDIA_VISIBLE_DEVICES=all
 ENV NVIDIA_DRIVER_CAPABILITIES=compute,utility,graphics
 
-# DCV version — bump these when a new release drops
+# DCV version
 ARG DCV_VERSION=2025.0
 ARG DCV_BUILD=20103
 
-# Install EPEL, XFCE desktop, and DCV prerequisites
+# Install EPEL, MATE desktop (no systemd dependency), and DCV prerequisites
 RUN dnf install -y epel-release && \
+    dnf config-manager --set-enabled crb && \
     dnf update -y && \
-    dnf groupinstall -y "Xfce" "base-x" && \
-    dnf install -y \
-        xterm procps-ng sudo wget tar xz \
-        libXi libXxf86vm libXfixes libXrender libGL mesa-libGL \
-        libSM libICE libXrandr xorg-x11-server-Xvfb \
-        # DCV dependencies
-        libXtst libXcomposite libXcursor libXdamage libXt libXScrnSaver \
-        libuuid dbus-x11 glx-utils mesa-dri-drivers \
+    dnf install -y --allowerasing \
+        # MATE core
+        mate-session-manager marco mate-panel mate-terminal mate-desktop \
+        mate-settings-daemon mate-control-center mate-notification-daemon \
+        caja eom pluma mate-themes mate-icon-theme \
+        # X11 / base
+        xterm procps-ng sudo wget tar xz dbus-x11 \
         xorg-x11-server-Xorg xorg-x11-xauth xorg-x11-xinit \
+        xorg-x11-server-Xvfb \
+        # GL / DCV deps
+        libXi libXxf86vm libXfixes libXrender libGL mesa-libGL \
+        libSM libICE libXrandr \
+        libXtst libXcomposite libXcursor libXdamage libXt libXScrnSaver \
+        libuuid glx-utils mesa-dri-drivers \
         # Misc
-        jq ristretto && \
+        jq && \
     dnf clean all
 
 # Import DCV GPG key and install DCV server
@@ -59,7 +65,7 @@ RUN mkdir -p /home/rockyuser/Desktop && \
     chmod +x /home/rockyuser/Desktop/Blender.desktop && \
     chown -R rockyuser:rockyuser /home/rockyuser/Desktop
 
-# Configure DCV for virtual sessions (no physical display needed)
+# Configure DCV for virtual sessions
 RUN mkdir -p /etc/dcv && \
     printf '[display]\n\
 target-fps=60\n\
@@ -71,13 +77,17 @@ web-port=8443\n\
 web-url-path="/"\n\
 enable-quic-frontend=true\n' > /etc/dcv/dcv.conf
 
-# Create DCV virtual session init script for XFCE
-RUN printf '#!/bin/bash\neval $(dbus-launch --sh-syntax)\nexport DBUS_SESSION_BUS_ADDRESS\nstartxfce4\n' > /usr/libexec/dcv/dcvstartxfce && \
-    chmod +x /usr/libexec/dcv/dcvstartxfce
+# Pre-create XDG runtime dir for rockyuser and ICE dir
+RUN mkdir -p /run/user/1000 && chown rockyuser:rockyuser /run/user/1000 && chmod 700 /run/user/1000 && \
+    mkdir -p /tmp/.ICE-unix && chmod 1777 /tmp/.ICE-unix
+
+# Create DCV virtual session init script for MATE
+RUN printf '#!/bin/bash\neval $(dbus-launch --sh-syntax)\nexport DBUS_SESSION_BUS_ADDRESS\nexport XDG_SESSION_TYPE=x11\nexport XDG_RUNTIME_DIR=/run/user/1000\nmate-session --disable-acceleration-check\n' > /usr/libexec/dcv/dcvstartmate && \
+    chmod +x /usr/libexec/dcv/dcvstartmate
 
 EXPOSE 8443
 
-COPY start-dcv.sh /start-dcv.sh
-RUN chmod +x /start-dcv.sh
+COPY start-dcv-gnome.sh /start-dcv-gnome.sh
+RUN chmod +x /start-dcv-gnome.sh
 
-CMD ["/start-dcv.sh"]
+CMD ["/start-dcv-gnome.sh"]
