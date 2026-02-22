@@ -135,8 +135,9 @@ RUN pip install --user --no-deps \
     /opt/comfyui/custom_nodes/ComfyUI-Trellis2/wheels/Linux/Torch270/flex_gemm-0.0.1-cp312-cp312-linux_x86_64.whl \
     /opt/comfyui/custom_nodes/ComfyUI-Trellis2/wheels/Linux/Torch270/o_voxel-0.0.1-cp312-cp312-linux_x86_64.whl
 
-# Step 3: Swap wheel .so files with source-built ones
+# Step 3: Swap wheel .so files with source-built ones, remove stale wheel _xatlas.so
 RUN cp /tmp/built-sos/cumesh/* /home/comfyui/.local/lib/python3.12/site-packages/cumesh/ && \
+    rm -f /home/comfyui/.local/lib/python3.12/site-packages/cumesh/_xatlas.cpython-*.so && \
     cp /tmp/built-sos/flex_gemm/* /home/comfyui/.local/lib/python3.12/site-packages/flex_gemm/kernels/ && \
     cp /tmp/built-sos/o_voxel/* /home/comfyui/.local/lib/python3.12/site-packages/o_voxel/ && \
     rm -rf /tmp/built-sos /tmp/extensions
