@@ -1,6 +1,7 @@
 # ComfyUI with TRELLIS-2 4B + BRIA RMBG 1.4 pre-baked
-# Standalone image — uses CUDA 12.6 base for torch 2.7.0 + Trellis2 wheel compatibility
-# Build: docker build -f Dockerfile.trellis2 -t comfyui-trellis2:latest .
+# Standalone image — uses CUDA 12.6 devel base for building CUDA extensions from source
+# Build: docker build -f Dockerfile.trellis2 --build-arg HF_TOKEN=<your_token> -t comfyui-trellis2:latest .
+# Run:   docker run -d --runtime=nvidia -e NVIDIA_VISIBLE_DEVICES=all -e NVIDIA_DRIVER_CAPABILITIES=compute,utility --network host --name comfyui-trellis2 comfyui-trellis2:latest
 # VRAM: ~24GB inference at 1536³ (fits on L40S 48GB, A100 40GB, or 24GB at 1024³)
 
 FROM nvidia/cuda:12.6.3-devel-rockylinux9
@@ -91,18 +92,62 @@ RUN git clone --depth 1 https://github.com/ZHO-ZHO-ZHO/ComfyUI-BRIA_AI-RMBG.git 
     /opt/comfyui/custom_nodes/ComfyUI-BRIA_AI-RMBG && \
     chown -R comfyui:comfyui /opt/comfyui/custom_nodes/ComfyUI-BRIA_AI-RMBG
 
-# Install Trellis2 pre-built wheels (cumesh, nvdiffrast, flex_gemm, o_voxel)
-# Use --no-deps because o_voxel declares cumesh as a git dep which conflicts with the local wheel
-# Source: https://github.com/visualbruno/ComfyUI-Trellis2#installation-guide
+# Hybrid install: wheel Python code + source-built native .so files
+# Pre-built wheels require GLIBCXX_3.4.32 (GCC 13+), Rocky 9 only has 3.4.29 (GCC 11)
+# See job-trellis2/architecture.md for full explanation
 USER comfyui
+RUN pip install --user ninja wheel
+
+# Step 1: Build native .so files from source and save them
+# CuMesh
+RUN git clone --recursive https://github.com/JeffreyXiang/CuMesh.git /tmp/extensions/CuMesh && \
+    CUDA_HOME=/usr/local/cuda pip install --user /tmp/extensions/CuMesh --no-build-isolation && \
+    mkdir -p /tmp/built-sos/cumesh && \
+    cp /home/comfyui/.local/lib/python3.12/site-packages/cumesh/_C*.so \
+       /home/comfyui/.local/lib/python3.12/site-packages/cumesh/_cubvh*.so \
+       /home/comfyui/.local/lib/python3.12/site-packages/cumesh/_cumesh_xatlas*.so \
+       /tmp/built-sos/cumesh/ && \
+    pip uninstall -y cumesh && \
+    rm -rf /tmp/extensions/CuMesh
+
+# FlexGEMM
+RUN git clone --recursive https://github.com/JeffreyXiang/FlexGEMM.git /tmp/extensions/FlexGEMM && \
+    CUDA_HOME=/usr/local/cuda pip install --user /tmp/extensions/FlexGEMM --no-build-isolation && \
+    mkdir -p /tmp/built-sos/flex_gemm && \
+    cp /home/comfyui/.local/lib/python3.12/site-packages/flex_gemm/kernels/cuda*.so \
+       /tmp/built-sos/flex_gemm/ && \
+    pip uninstall -y flex-gemm && \
+    rm -rf /tmp/extensions/FlexGEMM
+
+# o-voxel (from TRELLIS.2 repo submodule)
+RUN git clone --recursive -b main https://github.com/microsoft/TRELLIS.2.git /tmp/trellis2-src && \
+    CUDA_HOME=/usr/local/cuda pip install --user --no-deps /tmp/trellis2-src/o-voxel --no-build-isolation && \
+    mkdir -p /tmp/built-sos/o_voxel && \
+    cp /home/comfyui/.local/lib/python3.12/site-packages/o_voxel/_C*.so \
+       /tmp/built-sos/o_voxel/ && \
+    pip uninstall -y o-voxel && \
+    rm -rf /tmp/trellis2-src
+
+# Step 2: Install pre-built wheels (correct Python code with tiled_flexible_dual_grid_to_mesh)
 RUN pip install --user --no-deps \
     /opt/comfyui/custom_nodes/ComfyUI-Trellis2/wheels/Linux/Torch270/cumesh-0.0.1-cp312-cp312-linux_x86_64.whl \
     /opt/comfyui/custom_nodes/ComfyUI-Trellis2/wheels/Linux/Torch270/nvdiffrast-0.4.0-cp312-cp312-linux_x86_64.whl \
     /opt/comfyui/custom_nodes/ComfyUI-Trellis2/wheels/Linux/Torch270/flex_gemm-0.0.1-cp312-cp312-linux_x86_64.whl \
     /opt/comfyui/custom_nodes/ComfyUI-Trellis2/wheels/Linux/Torch270/o_voxel-0.0.1-cp312-cp312-linux_x86_64.whl
 
-# Install Trellis2 Python requirements
-RUN pip install --user -r /opt/comfyui/custom_nodes/ComfyUI-Trellis2/requirements.txt
+# Step 3: Swap wheel .so files with source-built ones
+RUN cp /tmp/built-sos/cumesh/* /home/comfyui/.local/lib/python3.12/site-packages/cumesh/ && \
+    cp /tmp/built-sos/flex_gemm/* /home/comfyui/.local/lib/python3.12/site-packages/flex_gemm/kernels/ && \
+    cp /tmp/built-sos/o_voxel/* /home/comfyui/.local/lib/python3.12/site-packages/o_voxel/ && \
+    rm -rf /tmp/built-sos /tmp/extensions
+
+# Step 4: Patch xatlas import (source builds as _cumesh_xatlas, wheel expects _xatlas)
+RUN sed -i 's/from \. import _xatlas/from . import _cumesh_xatlas as _xatlas/' \
+    /home/comfyui/.local/lib/python3.12/site-packages/cumesh/xatlas.py
+
+# Install Trellis2 Python requirements + missing runtime deps
+RUN pip install --user -r /opt/comfyui/custom_nodes/ComfyUI-Trellis2/requirements.txt && \
+    pip install --user trimesh easydict plyfile zstandard
 
 # Install huggingface_hub for model downloads
 RUN pip install --user huggingface_hub
@@ -142,18 +187,22 @@ RUN wget -q --show-progress -O /opt/comfyui/models/microsoft/TRELLIS-image-large
 # NOTE: This repo requires Facebook to manually approve access. If HF_TOKEN is set
 # and approved, the model is baked in. Otherwise it must be downloaded at runtime.
 ARG HF_TOKEN=""
-RUN if [ -n "$HF_TOKEN" ]; then \
-    python3.12 -c "\
+ENV HF_TOKEN_BUILD=${HF_TOKEN}
+RUN if [ -n "$HF_TOKEN_BUILD" ]; then \
+    HF_TOKEN=$HF_TOKEN_BUILD python3.12 -c "\
+import os; \
 from huggingface_hub import snapshot_download; \
 snapshot_download( \
     repo_id='facebook/dinov3-vitl16-pretrain-lvd1689m', \
     local_dir='/opt/comfyui/models/facebook/dinov3-vitl16-pretrain-lvd1689m', \
     local_dir_use_symlinks=False, \
-    token='$HF_TOKEN' \
-)" 2>/dev/null && echo "DINOv3 downloaded successfully" || \
+    token=os.environ['HF_TOKEN'] \
+)" && echo "DINOv3 downloaded successfully" || \
     echo "WARNING: DINOv3 download failed (access may be pending approval). Download manually or at runtime."; \
     else echo "WARNING: HF_TOKEN not set. DINOv3 must be downloaded manually to models/facebook/dinov3-vitl16-pretrain-lvd1689m/"; \
     fi
+# Clear the token from the image layer
+ENV HF_TOKEN_BUILD=""
 
 # Bake BRIA RMBG 1.4 model (~170MB)
 # Source: https://huggingface.co/briaai/RMBG-1.4
