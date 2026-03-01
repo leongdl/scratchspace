@@ -81,7 +81,7 @@ The resource configuration points to the EC2 bastion's private IP (`10.0.0.129`)
 |------|--------|---------|
 | 22 | VPC CIDR (10.0.0.0/16) | SSH from VPC |
 | 22 | VPC Lattice prefix list | SSH from SMF workers |
-| 443 | VPC CIDR | HTTPS for SSM/VPC endpoints |
+| 443 | VPC CIDR | HTTPS for SSM VPC endpoints |
 | 443 | VPC Lattice prefix list | HTTPS from SMF workers |
 | 2049 | VPC CIDR | NFS for FSx OpenZFS |
 | 2049 | VPC Lattice prefix list | NFS from SMF workers |
@@ -96,11 +96,39 @@ User-data at launch configured:
 - `GatewayPorts yes` — allows reverse tunnel `-R` to bind on `0.0.0.0`
 - `/home/ssm-user/.ssh/authorized_keys` — prepared for worker tunnel keys
 
+## VPC Endpoints
+
+All four endpoints are available and required:
+
+| Name | Service | State |
+|------|---------|-------|
+| `deadline-ssm-vpce` | `com.amazonaws.us-west-2.ssm` | available |
+| `deadline-ssmmessages-vpce` | `com.amazonaws.us-west-2.ssmmessages` | available |
+| `deadline-ec2messages-vpce` | `com.amazonaws.us-west-2.ec2messages` | available |
+| `deadline-fsx-vpce` | `com.amazonaws.us-west-2.fsx` | available |
+
+Note: all three SSM endpoints are required for Session Manager to work in a private subnet. Missing `ssmmessages` or `ec2messages` will cause `TargetNotConnected` errors even if the `ssm` endpoint exists.
+
 ## Networking
 
 ```
 VPC:    vpc-089c2522bf414cff2  (10.0.0.0/16)
-Subnet: subnet-044edd1290db6f355  (10.0.0.0/24, us-west-2a)
+Subnet: subnet-044edd1290db6f355  (us-west-2a)
 ```
 
 All traffic between workers, VPC Lattice, and the EC2 bastion stays within AWS private networking. No public internet exposure.
+
+## FSx for OpenZFS
+
+| Field | Value |
+|-------|-------|
+| Filesystem ID | `fs-0fdcec1bc9f64d25d` |
+| Type | SINGLE_AZ_1, 64 GB SSD |
+| Throughput | 64 MB/s |
+| Backups | Disabled |
+| NFS Export | `*` with `rw, crossmnt, no_root_squash, insecure` |
+| Lattice Config | `rcfg-072853a357ca69135` → `10.0.0.148` |
+| Worker mount | `/mnt/fsx` (bind-mounted from host `$HOME/fsx`) |
+| Cost | ~$6/month |
+
+The `insecure` NFS export option is required — NFS client ports come through the Lattice proxy and may be unprivileged.

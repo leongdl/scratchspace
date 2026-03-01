@@ -74,16 +74,16 @@
 
 ### Security Group (`deadline-vnc-proxy-sg`)
 - `sg-0a0d2bdb7a935a990`
-- Shared by the EC2 bastion, FSx filesystem, and both VPC endpoints.
+- Shared by the EC2 bastion, FSx filesystem, and all VPC endpoints.
 - Inbound rules are scoped to the VPC CIDR (`10.0.0.0/16`) and the VPC Lattice managed prefix list — no internet exposure.
-- Ports: `22` (SSH tunnel), `988` (Lustre), `6080` (noVNC/HTTP), `8188` (ComfyUI).
+- Ports: `22` (SSH tunnel), `443` (HTTPS for SSM VPC endpoints), `2049` (NFS for FSx OpenZFS), `6080` (noVNC/HTTP), `8188` (ComfyUI).
 
-### FSx for Lustre (`deadline-shared-fs`)
-- `fs-0b20bb08cf7a694ed` — PERSISTENT_2, 1200 GB, 125 MB/s/TiB, no backups.
-- Shared high-performance filesystem mounted by workers at `/mnt/fsx`. Used to distribute scene files, assets, and render outputs without copying data into each container.
-- PERSISTENT_2 means data is replicated within the AZ and the file server is automatically replaced on failure — appropriate for production assets.
-- Mount command: `mount -t lustre fs-0b20bb08cf7a694ed.fsx.us-west-2.amazonaws.com@tcp:/fdyl7b4v /mnt/fsx`
-- Cost: ~$174/month (1200 GB × $0.145/GB-month, no backup charges).
+### FSx for OpenZFS (`deadline-shared-fs`)
+- `fs-0fdcec1bc9f64d25d` — SINGLE_AZ_1, 64 GB SSD, 64 MB/s throughput, no backups.
+- Shared filesystem mounted by workers at `/mnt/fsx` (bind-mounted from host `$HOME/fsx`). Used to distribute scene files, assets, and render outputs without copying data into each container.
+- Mounted via NFS v4.1 through the VPC Lattice resource config endpoint.
+- NFS export: `*` with `rw, crossmnt, no_root_squash, insecure` — `insecure` is required because the NFS client port comes through the Lattice proxy and may be unprivileged.
+- Cost: ~$6/month (64 GB × $0.09/GB-month).
 
 ### VPC Endpoint — FSx (`deadline-fsx-vpce`)
 - `vpce-07af54c91a13de9da` — Interface endpoint for `com.amazonaws.us-west-2.fsx`
@@ -91,7 +91,9 @@
 
 ### VPC Endpoint — SSM (`deadline-ssm-vpce`)
 - `vpce-0982c820559b4b091` — Interface endpoint for `com.amazonaws.us-west-2.ssm`
-- Allows SSM Session Manager to reach the bastion EC2 without an internet gateway or NAT. You can shell into the bastion with:
+- `vpce-09c601780831989c7` — Interface endpoint for `com.amazonaws.us-west-2.ssmmessages`
+- `vpce-079b7bffde14368e8` — Interface endpoint for `com.amazonaws.us-west-2.ec2messages`
+- All three are required for SSM Session Manager to work in a private subnet. Private DNS enabled on all. You can shell into the bastion with:
   ```
   aws ssm start-session --target i-06ff509b4812bc474 --region us-west-2
   ```
@@ -129,8 +131,8 @@
 1. Deadline submits a job and spins up a worker in its managed fleet.
 2. The worker pulls the container image from ECR.
 3. The worker mounts the FSx filesystem at `/mnt/fsx` for shared assets.
-4. The worker opens a reverse SSH tunnel to the bastion via the VPC Lattice endpoint (port 22), binding the VNC port (6080) on the bastion's `0.0.0.0`.
-5. The operator connects to the bastion via SSM port forwarding and opens `http://localhost:6080/vnc.html` in a browser.
+4. The worker opens a reverse SSH tunnel to the bastion via the VPC Lattice endpoint (port 22), binding the DCV port (8443) on the bastion's `0.0.0.0`.
+5. The operator connects to the bastion via SSM port forwarding and opens `https://localhost:8443` in a browser — credentials `rockyuser / rocky`.
 
 ---
 
@@ -160,14 +162,17 @@ The output manifest (`gui-demo/resources.json`) is written on every run — incl
 | Resource | ID | Notes |
 |---|---|---|
 | VPC | `vpc-089c2522bf414cff2` | `10.0.0.0/16` |
-| Subnet | `subnet-044edd1290db6f355` | Private, us-west-2 |
-| EC2 Bastion | `i-06ff509b4812bc474` | `10.0.0.129`, t3.micro |
-| Security Group | `sg-0a0d2bdb7a935a990` | Ports 22, 988, 6080, 8188 |
-| FSx Filesystem | `fs-0b20bb08cf7a694ed` | 1200 GB PERSISTENT_2 |
+| Subnet | `subnet-044edd1290db6f355` | us-west-2a |
+| EC2 Bastion | `i-06ff509b4812bc474` | `10.0.0.129`, t3.micro, SSMManagedEC2Role |
+| Security Group | `sg-0a0d2bdb7a935a990` | Ports 22, 443, 2049, 6080, 8188 |
+| FSx OpenZFS | `fs-0fdcec1bc9f64d25d` | 64 GB SINGLE_AZ_1, NFS v4.1 |
 | VPCE FSx | `vpce-07af54c91a13de9da` | Interface, private DNS |
 | VPCE SSM | `vpce-0982c820559b4b091` | Interface, private DNS |
+| VPCE SSM Messages | `vpce-09c601780831989c7` | Interface, private DNS |
+| VPCE EC2 Messages | `vpce-079b7bffde14368e8` | Interface, private DNS |
 | Lattice Gateway | `rgw-0e7bc6ca48da90534` | ACTIVE |
 | Lattice Config (proxy) | `rcfg-0a8ab60ee0c8594b6` | → 10.0.0.129:22 (SSH tunnel) |
-| Lattice Config (FSx) | `rcfg-072853a357ca69135` | → FSx filesystem |
+| Lattice Config (FSx) | `rcfg-072853a357ca69135` | → 10.0.0.148:2049 (NFS) |
 | RAM Share | `fbd340e3-5836-4aad-b9ec-c9b1e25efcb2` | Shared with Deadline fleet principal |
-| ECR Repo | `desktop-demo` | `257639634185.dkr.ecr.us-west-2.amazonaws.com/desktop-demo` |
+| ECR Repo (active) | `desktop-demo-dcv` | `257639634185.dkr.ecr.us-west-2.amazonaws.com/desktop-demo-dcv:latest` |
+| ECR Repo (fallback) | `desktop-demo` | `257639634185.dkr.ecr.us-west-2.amazonaws.com/desktop-demo:rocky-vnc` |

@@ -33,44 +33,26 @@ The **queue role** is what executes the job script and performs the mount — no
 
 No other IAM changes are needed. FSx for Lustre does not use resource policies or ACLs for mount access.
 
-## 3. OS — Lustre Client
+## 3. OS — NFS Client
 
-The worker container image must have the Lustre client installed. Add to your Dockerfile:
-
-**Rocky Linux 8 / RHEL 8:**
-```dockerfile
-RUN amazon-linux-extras install -y epel && \
-    curl -o /etc/yum.repos.d/fsx-lustre.repo \
-      https://fsx-lustre-client-repo.s3.amazonaws.com/el/8/fsx-lustre-client.repo && \
-    dnf install -y kmod-lustre-client lustre-client
-```
-
-**Amazon Linux 2:**
-```dockerfile
-RUN amazon-linux-extras install -y lustre
-```
-
-**Amazon Linux 2023:**
-```dockerfile
-RUN dnf install -y lustre-client
-```
+NFS v4.1 is available on all Linux distributions by default — no additional packages needed on the worker host (Amazon Linux 2023 includes it). No Dockerfile changes required.
 
 ## 4. Mount Command
 
+The job script mounts FSx on the host via the VPC Lattice endpoint, then bind-mounts it into the container:
+
 ```bash
-mkdir -p /mnt/fsx
-mount -t lustre \
-  fs-0b20bb08cf7a694ed.fsx.us-west-2.amazonaws.com@tcp:/fdyl7b4v \
-  /mnt/fsx
+# On host (job script)
+mkdir -p $HOME/fsx
+sudo mount -t nfs -o nfsvers=4.1,rsize=1048576,wsize=1048576,hard,timeo=600,retrans=2 \
+  rcfg-072853a357ca69135.resource-endpoints.deadline.us-west-2.amazonaws.com:/ \
+  $HOME/fsx
+
+# In container (via docker run -v)
+-v "$HOME/fsx:/mnt/fsx"
 ```
 
-Must run as **root**. Add to your job entrypoint script before the workload starts.
-
-To verify the mount:
-```bash
-df -h /mnt/fsx
-lfs df /mnt/fsx   # Lustre-specific stats
-```
+Inside the container the filesystem is at `/mnt/fsx`.
 
 ## 5. POSIX Permissions
 
@@ -101,10 +83,25 @@ Always unmount cleanly before terminating the container to avoid stale NFS-style
 
 | Requirement | Status |
 |---|---|
-| Port 988 open in SG | ✅ Done by setup script |
-| FSx in same subnet | ✅ Done by setup script |
-| VPC endpoint for FSx API | ✅ Done by setup script |
-| Worker IAM `fsx:DescribeFileSystems` | ⚠️ Apply inline policy `FSxDescribeFileSystems` to queue role `AWSDeadlineCloudQueueRole-1872629856` and fleet role `AWSDeadlineCloudFleetRole-467892534` |
-| Lustre client in container image | ⚠️ Must add to Dockerfile |
-| Mount command in job entrypoint | ⚠️ Must add to job script |
-| POSIX permissions on `/mnt/fsx` | ⚠️ Set once after first mount |
+| Port 2049 (NFS) open in SG | ✅ Done |
+| Port 443 (HTTPS) open in SG | ✅ Done — required for SSM VPC endpoints |
+| FSx in same subnet | ✅ Done |
+| VPC endpoint for FSx API | ✅ Done |
+| NFS export `insecure` option | ✅ Done — required for Lattice proxy |
+| Worker IAM `fsx:DescribeFileSystems` | ✅ Applied to queue role `AWSDeadlineCloudQueueRole-1872629856` and fleet role `AWSDeadlineCloudFleetRole-467892534` |
+| Mount in job script | ✅ Done — `$HOME/fsx` on host, bind-mounted to `/mnt/fsx` in container |
+| POSIX permissions on `/mnt/fsx` | ⚠️ Set once after first mount if needed |
+
+---
+
+## Why Not Lustre
+
+FSx for Lustre was the original choice (PERSISTENT_2, 1200 GB, 125 MB/s/TiB). It was provisioned and the mount was attempted from Deadline workers via a VPC Lattice TCP resource config endpoint.
+
+It failed with `mount.lustre: Can't parse NID` and later `Invalid argument` because of a fundamental protocol incompatibility: Lustre uses its own network identity system called LNet NIDs. During the mount handshake, the MGS (metadata server) advertises its own NID (e.g. `10.0.0.x@tcp`) back to the client. The client then tries to reconnect directly to that NID — bypassing the Lattice proxy entirely. Since the worker is in Deadline's managed network (`100.100.x.x`) and can't reach `10.0.0.x` directly, the connection fails.
+
+This is not a configuration issue — it's inherent to how Lustre works. Lustre cannot be mounted through any NAT or TCP proxy because the protocol requires direct client-to-server NID connectivity after the initial handshake.
+
+FSx for OpenZFS over NFS v4.1 works correctly through the Lattice proxy because NFS is a standard request/response protocol with no out-of-band reconnection. All traffic flows through the proxy endpoint without the client needing to know the server's real IP.
+
+The Lustre filesystem (`fs-0b20bb08cf7a694ed`) was deleted after confirming the failure. The OpenZFS filesystem (`fs-0fdcec1bc9f64d25d`) replaced it at ~5% of the cost ($6/mo vs ~$174/mo).
