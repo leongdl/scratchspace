@@ -150,7 +150,10 @@ steps:
         # Setup reverse SSH tunnel to EC2 proxy
         echo "Setting up reverse SSH tunnel to EC2 proxy..."
         echo "EC2 Proxy: {{Param.EC2_PROXY_HOST}}"
-        
+
+        # Clear any stale known_hosts entry for this host to avoid key mismatch on bastion rebuild
+        ssh-keygen -R "{{Param.EC2_PROXY_HOST}}" 2>/dev/null || true
+
         # Start reverse SSH tunnel using the attached key
         # -R 8443:localhost:8443 = Forward EC2:8443 to Worker:8443
         echo "Starting reverse SSH tunnel..."
@@ -158,13 +161,23 @@ steps:
             -R 8443:localhost:8443 \
             -N \
             -o StrictHostKeyChecking=no \
-            -o ServerAliveInterval=60 \
+            -o ServerAliveInterval=30 \
             -o ServerAliveCountMax=3 \
             -o ExitOnForwardFailure=yes \
+            -o ConnectTimeout=15 \
             {{Param.EC2_PROXY_USER}}@{{Param.EC2_PROXY_HOST}} &
-        
         SSH_PID=$!
-        echo "Reverse SSH tunnel started with PID: $SSH_PID"
+
+        # Verify tunnel established within 15 seconds
+        echo "Verifying SSH tunnel (pid $SSH_PID)..."
+        for i in {1..15}; do
+          sleep 1
+          if ! kill -0 $SSH_PID 2>/dev/null; then
+            echo "ERROR: SSH tunnel failed to establish — aborting job"
+            exit 1
+          fi
+        done
+        echo "SSH tunnel is up (pid $SSH_PID)"
         
         # Keep the session alive
         echo ""

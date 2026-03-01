@@ -13,22 +13,22 @@
 │  │  │  Private Subnet  subnet-044edd1290db6f355                   │    │   │
 │  │  │                                                             │    │   │
 │  │  │  ┌──────────────────┐    ┌──────────────────────────────┐  │    │   │
-│  │  │  │  EC2 Bastion     │    │  FSx for Lustre              │  │    │   │
-│  │  │  │  t3.micro        │    │  PERSISTENT_2  1200 GB       │  │    │   │
-│  │  │  │  10.0.0.57       │    │  125 MB/s/TiB                │  │    │   │
-│  │  │  │  (reverse tunnel)│    │  /mnt/fsx                    │  │    │   │
+│  │  │  │  EC2 Bastion     │    │  FSx for OpenZFS             │  │    │   │
+│  │  │  │  t3.micro        │    │  SINGLE_AZ_1  64 GB          │  │    │   │
+│  │  │  │  10.0.0.129      │    │  64 MB/s throughput          │  │    │   │
+│  │  │  │  (reverse tunnel)│    │  /mnt/fsx  (NFS v4.1)        │  │    │   │
 │  │  │  └────────┬─────────┘    └──────────────────────────────┘  │    │   │
 │  │  │           │                                                 │    │   │
 │  │  │  ┌────────▼──────────────────────────────────────────────┐ │    │   │
 │  │  │  │  Security Group  sg-0a0d2bdb7a935a990                 │ │    │   │
-│  │  │  │  Inbound: 22, 988, 6080, 8188 from VPC CIDR           │ │    │   │
-│  │  │  │           22, 6080, 8188 from VPC Lattice prefix list  │ │    │   │
+│  │  │  │  Inbound: 22, 443, 2049, 6080, 8188 from VPC CIDR    │ │    │   │
+│  │  │  │           22, 443, 2049, 6080, 8188 from Lattice      │ │    │   │
 │  │  │  └───────────────────────────────────────────────────────┘ │    │   │
 │  │  │                                                             │    │   │
 │  │  │  ┌──────────────────┐    ┌──────────────────────────────┐  │    │   │
-│  │  │  │  VPCE — FSx      │    │  VPCE — SSM                  │  │    │   │
-│  │  │  │  (Interface)     │    │  (Interface)                 │  │    │   │
-│  │  │  │  Private DNS on  │    │  Private DNS on              │  │    │   │
+│  │  │  │  VPCE — FSx      │    │  VPCE — SSM (×3)             │  │    │   │
+│  │  │  │  (Interface)     │    │  ssm, ssmmessages,           │  │    │   │
+│  │  │  │  Private DNS on  │    │  ec2messages                 │  │    │   │
 │  │  │  └──────────────────┘    └──────────────────────────────┘  │    │   │
 │  │  └─────────────────────────────────────────────────────────────┘    │   │
 │  │                                                                      │   │
@@ -43,7 +43,7 @@
 │  │  │  RAM Share ──────► fleets.deadline.amazonaws.com              │  │   │
 │  │  └───────────────────────────────────────────────────────────────┘  │   │
 │  │                                                                      │   │
-│  │  ECR  257639634185.dkr.ecr.us-west-2.amazonaws.com/desktop-demo     │   │
+│  │  ECR  257639634185.dkr.ecr.us-west-2.amazonaws.com/desktop-demo-dcv (active)  │   │
 │  └──────────────────────────────────────────────────────────────────────┘   │
 └─────────────────────────────────────────────────────────────────────────────┘
 
@@ -55,10 +55,10 @@
               │  Deadline Cloud Worker Fleet                    │
               │  (managed, runs in Deadline's account)          │
               │                                                 │
-              │  - Pulls container image from ECR               │
-              │  - Mounts FSx at /mnt/fsx (shared assets)       │
-              │  - Opens reverse SSH tunnel to bastion          │
-              │  - VNC/noVNC served back through tunnel         │
+              │  - Pulls container image from ECR (desktop-demo-dcv:latest) │
+              │  - Mounts FSx at /mnt/fsx via NFS (OpenZFS)             │
+              │  - Opens reverse SSH tunnel to bastion (port 8443)      │
+              │  - DCV desktop served back through tunnel                │
               └─────────────────────────────────────────────────┘
 ```
 
@@ -67,7 +67,7 @@
 ## Components
 
 ### EC2 Bastion (`deadline-vnc-proxy`)
-- `i-0227d51eeadb27c64` — t3.micro at `10.0.0.57`
+- `i-06ff509b4812bc474` — t3.micro at `10.0.0.129`
 - Lives in the private subnet with no public IP. Accessible only via SSM Session Manager or through the VPC Lattice endpoint.
 - Configured on first boot (via user-data) with `GatewayPorts yes` in sshd, which allows Deadline workers to open a reverse SSH tunnel and bind it on `0.0.0.0` rather than loopback. This is what makes the VNC port reachable from outside the worker.
 - Workers SSH in using a pre-shared key placed in `/home/ssm-user/.ssh/authorized_keys`.
@@ -93,7 +93,7 @@
 - `vpce-0982c820559b4b091` — Interface endpoint for `com.amazonaws.us-west-2.ssm`
 - Allows SSM Session Manager to reach the bastion EC2 without an internet gateway or NAT. You can shell into the bastion with:
   ```
-  aws ssm start-session --target i-0227d51eeadb27c64 --region us-west-2
+  aws ssm start-session --target i-06ff509b4812bc474 --region us-west-2
   ```
 
 ### VPC Lattice Resource Gateway (`vnc-proxy-gateway`)
@@ -102,7 +102,7 @@
 
 ### VPC Lattice Resource Configuration — Proxy (`vnc-proxy-config`)
 - `rcfg-0a8ab60ee0c8594b6`
-- Maps the Lattice endpoint to `10.0.0.57:22` (the bastion's private IP). Workers use this to open the reverse SSH tunnel:
+- Maps the Lattice endpoint to `10.0.0.129:22` (the bastion's private IP). Workers use this to open the reverse SSH tunnel:
   ```
   rcfg-0a8ab60ee0c8594b6.resource-endpoints.deadline.us-west-2.amazonaws.com:22
   ```
@@ -161,13 +161,13 @@ The output manifest (`gui-demo/resources.json`) is written on every run — incl
 |---|---|---|
 | VPC | `vpc-089c2522bf414cff2` | `10.0.0.0/16` |
 | Subnet | `subnet-044edd1290db6f355` | Private, us-west-2 |
-| EC2 Bastion | `i-0227d51eeadb27c64` | `10.0.0.57`, t3.micro |
+| EC2 Bastion | `i-06ff509b4812bc474` | `10.0.0.129`, t3.micro |
 | Security Group | `sg-0a0d2bdb7a935a990` | Ports 22, 988, 6080, 8188 |
 | FSx Filesystem | `fs-0b20bb08cf7a694ed` | 1200 GB PERSISTENT_2 |
 | VPCE FSx | `vpce-07af54c91a13de9da` | Interface, private DNS |
 | VPCE SSM | `vpce-0982c820559b4b091` | Interface, private DNS |
 | Lattice Gateway | `rgw-0e7bc6ca48da90534` | ACTIVE |
-| Lattice Config (proxy) | `rcfg-0a8ab60ee0c8594b6` | → 10.0.0.57:22 (SSH tunnel) |
+| Lattice Config (proxy) | `rcfg-0a8ab60ee0c8594b6` | → 10.0.0.129:22 (SSH tunnel) |
 | Lattice Config (FSx) | `rcfg-072853a357ca69135` | → FSx filesystem |
 | RAM Share | `fbd340e3-5836-4aad-b9ec-c9b1e25efcb2` | Shared with Deadline fleet principal |
 | ECR Repo | `desktop-demo` | `257639634185.dkr.ecr.us-west-2.amazonaws.com/desktop-demo` |

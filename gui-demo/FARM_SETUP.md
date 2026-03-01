@@ -41,9 +41,10 @@ Both the fleet and queue roles have `AmazonEC2ContainerRegistryFullAccess` attac
 | Fleet (`AWSDeadlineCloudFleetRole-467892534`) | `AmazonEC2ContainerRegistryFullAccess` |
 | Queue (`AWSDeadlineCloudQueueRole-1872629856`) | `AmazonEC2ContainerRegistryFullAccess` |
 
-ECR repository:
+ECR repositories:
 ```
-257639634185.dkr.ecr.us-west-2.amazonaws.com/desktop-demo
+257639634185.dkr.ecr.us-west-2.amazonaws.com/desktop-demo-dcv   # NICE DCV (active)
+257639634185.dkr.ecr.us-west-2.amazonaws.com/desktop-demo        # VNC fallback
 ```
 
 ## VPC Lattice
@@ -61,14 +62,14 @@ The fleet has a VPC resource endpoint attached, allowing workers to initiate out
 | RAM Share ARN | `arn:aws:ram:us-west-2:257639634185:resource-share/fbd340e3-5836-4aad-b9ec-c9b1e25efcb2` |
 | Principal | `fleets.deadline.amazonaws.com` |
 
-The resource configuration points to the EC2 bastion's private IP (`10.0.0.57`) on port 22. Workers SSH to the Lattice endpoint to establish reverse tunnels.
+The resource configuration points to the EC2 bastion's private IP (`10.0.0.129`) on port 22. Workers SSH to the Lattice endpoint to establish reverse tunnels.
 
 ## EC2 Bastion
 
 | Field | Value |
 |-------|-------|
-| Instance ID | `i-0227d51eeadb27c64` |
-| Private IP | 10.0.0.57 |
+| Instance ID | `i-06ff509b4812bc474` |
+| Private IP | 10.0.0.129 |
 | Type | t3.micro |
 | Name | deadline-vnc-proxy |
 | Key Pair | deadline-vnc-proxy-key |
@@ -80,6 +81,10 @@ The resource configuration points to the EC2 bastion's private IP (`10.0.0.57`) 
 |------|--------|---------|
 | 22 | VPC CIDR (10.0.0.0/16) | SSH from VPC |
 | 22 | VPC Lattice prefix list | SSH from SMF workers |
+| 443 | VPC CIDR | HTTPS for SSM/VPC endpoints |
+| 443 | VPC Lattice prefix list | HTTPS from SMF workers |
+| 2049 | VPC CIDR | NFS for FSx OpenZFS |
+| 2049 | VPC Lattice prefix list | NFS from SMF workers |
 | 6080 | VPC CIDR | noVNC from VPC |
 | 6080 | VPC Lattice prefix list | noVNC from SMF workers |
 | 8188 | VPC CIDR | ComfyUI from VPC |

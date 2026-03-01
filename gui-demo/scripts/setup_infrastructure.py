@@ -51,8 +51,8 @@ CONFIG = {
     "resource_gateway_name": "vnc-proxy-gateway",
     "resource_config_name": "vnc-proxy-config",
     "ram_share_name": "deadline-vnc-share",
-    # Ports exposed through the security group (2049 = NFS for OpenZFS)
-    "ports": [22, 2049, 6080, 8188],
+    # Ports exposed through the security group (2049 = NFS for OpenZFS, 443 = HTTPS for SSM/VPC endpoints)
+    "ports": [22, 443, 2049, 6080, 8188],
     # ECR
     "ecr_repo_name": "desktop-demo",
     # FSx for OpenZFS
@@ -354,6 +354,9 @@ def ensure_instance_profile(ec2, instance_id: str):
         IamInstanceProfile={"Name": "SSMManagedEC2Role"},
     )
     print(f"  ✓ Attached SSMManagedEC2Role to {instance_id}")
+
+
+def create_ec2_instance(ec2, ssm_client, sg_id: str, key_name: str) -> dict:
     print("\n=== EC2 Proxy Instance ===")
     existing = find_instance_by_name(ec2, CONFIG["instance_name"])
     if existing:
@@ -424,6 +427,21 @@ def create_lattice_resources(ec2, vpc_lattice, ram, sts, private_ip: str) -> dic
     cfg = find_resource_config(vpc_lattice, CONFIG["resource_config_name"])
     if cfg:
         print(f"○ '{CONFIG['resource_config_name']}' exists: {cfg.get('id')} ({cfg.get('status')})")
+        # Update IP if the bastion IP has changed
+        try:
+            current = vpc_lattice.get_resource_configuration(
+                resourceConfigurationIdentifier=cfg["id"]
+            )
+            current_ip = current.get("resourceConfigurationDefinition", {}).get("ipResource", {}).get("ipAddress")
+            if current_ip != private_ip:
+                print(f"  Updating IP: {current_ip} → {private_ip}")
+                vpc_lattice.update_resource_configuration(
+                    resourceConfigurationIdentifier=cfg["id"],
+                    resourceConfigurationDefinition={"ipResource": {"ipAddress": private_ip}},
+                )
+                print(f"  ✓ Updated resource config IP to {private_ip}")
+        except ClientError as e:
+            print(f"  Warning updating resource config IP: {e}")
     else:
         cfg = vpc_lattice.create_resource_configuration(
             name=CONFIG["resource_config_name"],

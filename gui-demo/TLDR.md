@@ -25,7 +25,7 @@ bash generate_tunnel_key.sh
 
 # 4. Register your public key on the EC2 bastion
 PUB_KEY=$(cat job/vnc_tunnel_key.pub)
-aws ssm send-command --instance-ids i-0227d51eeadb27c64 --region us-west-2 \
+aws ssm send-command --instance-ids i-06ff509b4812bc474 --region us-west-2 \
   --document-name "AWS-RunShellScript" \
   --parameters "commands=[\"echo '$PUB_KEY' >> /home/ssm-user/.ssh/authorized_keys\"]"
 
@@ -34,7 +34,7 @@ cd job
 bash submit.sh
 
 # 6. Start the SSM tunnel from your Mac
-aws ssm start-session --target i-0227d51eeadb27c64 --region us-west-2 \
+aws ssm start-session --target i-06ff509b4812bc474 --region us-west-2 \
   --document-name AWS-StartPortForwardingSession \
   --parameters '{"portNumber":["8443"],"localPortNumber":["8443"]}'
 
