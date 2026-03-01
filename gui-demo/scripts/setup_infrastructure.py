@@ -8,13 +8,18 @@ Creates:
   3. EC2 T3 instance with user-data that configures GatewayPorts + sshd
   4. VPC Lattice resource gateway + resource configuration (port 22)
   5. RAM share with fleets.deadline.amazonaws.com
+  6. FSx for Lustre filesystem (PERSISTENT_2, 1200 GB, 125 MB/s/TiB, no backups)
+  7. VPC Interface Endpoint for FSx
+  8. VPC Interface Endpoint for SSM (bastion access)
 
 Outputs a JSON file with all resource IDs/ARNs so the job template can reference them.
+Resources not yet created are represented as null in the output.
 
 Idempotent — safe to run multiple times. Finds existing resources by Name tag / name field.
+Dry run (no --create) checks current state and writes the JSON with whatever exists.
 
 Usage:
-  python3 setup_infrastructure.py                # Dry run — show what exists
+  python3 setup_infrastructure.py                # Dry run — show what exists, write JSON
   python3 setup_infrastructure.py --create       # Create everything
   python3 setup_infrastructure.py --create --output resources.json
 """
@@ -46,22 +51,33 @@ CONFIG = {
     "resource_gateway_name": "vnc-proxy-gateway",
     "resource_config_name": "vnc-proxy-config",
     "ram_share_name": "deadline-vnc-share",
-    # Ports exposed through the security group
-    "ports": [22, 6080, 8188],
+    # Ports exposed through the security group (2049 = NFS for OpenZFS)
+    "ports": [22, 2049, 6080, 8188],
     # ECR
     "ecr_repo_name": "desktop-demo",
+    # FSx for OpenZFS
+    "fsx_name": "deadline-shared-fs",
+    "fsx_storage_gb": 64,
+    "fsx_deployment_type": "SINGLE_AZ_1",
+    "fsx_throughput_mbps": 64,
+    "fsx_vpce_name": "deadline-fsx-vpce",
+    "fsx_vpce_service": "com.amazonaws.us-west-2.fsx",
+    "bastion_vpce_name": "deadline-ssm-vpce",
+    "bastion_vpce_service": "com.amazonaws.us-west-2.ssm",
+    "ssmmessages_vpce_name": "deadline-ssmmessages-vpce",
+    "ssmmessages_vpce_service": "com.amazonaws.us-west-2.ssmmessages",
+    "ec2messages_vpce_name": "deadline-ec2messages-vpce",
+    "ec2messages_vpce_service": "com.amazonaws.us-west-2.ec2messages",
 }
 
 # ---------------------------------------------------------------------------
 # User-data script — runs once on first boot
-# Configures sshd for reverse tunnels. No socat needed; workers SSH directly.
 # ---------------------------------------------------------------------------
 USER_DATA = textwrap.dedent("""\
     #!/bin/bash
     set -e
 
     # --- SSH reverse-tunnel support ---
-    # Enable GatewayPorts so -R binds on 0.0.0.0 instead of 127.0.0.1
     sed -i 's/#GatewayPorts no/GatewayPorts yes/' /etc/ssh/sshd_config
     sed -i 's/GatewayPorts no/GatewayPorts yes/' /etc/ssh/sshd_config
     grep -q "^GatewayPorts yes" /etc/ssh/sshd_config || echo "GatewayPorts yes" >> /etc/ssh/sshd_config
@@ -79,23 +95,27 @@ USER_DATA = textwrap.dedent("""\
 
 
 # ---------------------------------------------------------------------------
-# Helpers
+# Helpers — clients
 # ---------------------------------------------------------------------------
 
 def get_clients():
     region = CONFIG["region"]
     return (
-        boto3.client("ec2", region_name=region),
+        boto3.client("ec2",         region_name=region),
         boto3.client("vpc-lattice", region_name=region),
-        boto3.client("ram", region_name=region),
-        boto3.client("ssm", region_name=region),
-        boto3.client("sts", region_name=region),
-        boto3.client("ecr", region_name=region),
+        boto3.client("ram",         region_name=region),
+        boto3.client("ssm",         region_name=region),
+        boto3.client("sts",         region_name=region),
+        boto3.client("ecr",         region_name=region),
+        boto3.client("fsx",         region_name=region),
     )
 
 
+# ---------------------------------------------------------------------------
+# Helpers — find existing resources (all return None if not found)
+# ---------------------------------------------------------------------------
+
 def find_instance_by_name(ec2, name: str) -> Optional[dict]:
-    """Find a running/pending/stopped instance by its Name tag."""
     resp = ec2.describe_instances(
         Filters=[
             {"Name": "tag:Name", "Values": [name]},
@@ -112,7 +132,7 @@ def find_sg_by_name(ec2, name: str, vpc_id: str) -> Optional[dict]:
     resp = ec2.describe_security_groups(
         Filters=[
             {"Name": "group-name", "Values": [name]},
-            {"Name": "vpc-id", "Values": [vpc_id]},
+            {"Name": "vpc-id",     "Values": [vpc_id]},
         ]
     )
     sgs = resp.get("SecurityGroups", [])
@@ -162,8 +182,50 @@ def find_ram_share(ram, name: str) -> Optional[dict]:
     return None
 
 
+def find_fsx_filesystem(fsx, name: str) -> Optional[dict]:
+    """Find an FSx filesystem by Name tag, ignoring DELETING/FAILED."""
+    try:
+        for page in fsx.get_paginator("describe_file_systems").paginate():
+            for fs in page.get("FileSystems", []):
+                if fs.get("Lifecycle") in ("DELETING", "FAILED"):
+                    continue
+                tags = {t["Key"]: t["Value"] for t in fs.get("Tags", [])}
+                if tags.get("Name") == name:
+                    return fs
+    except ClientError:
+        pass
+    return None
+
+
+def find_vpc_endpoint(ec2, name: str, vpc_id: str) -> Optional[dict]:
+    """Find a VPC Interface endpoint by Name tag."""
+    resp = ec2.describe_vpc_endpoints(
+        Filters=[
+            {"Name": "tag:Name",             "Values": [name]},
+            {"Name": "vpc-id",               "Values": [vpc_id]},
+            {"Name": "vpc-endpoint-state",   "Values": ["pending", "available"]},
+        ]
+    )
+    eps = resp.get("VpcEndpoints", [])
+    return eps[0] if eps else None
+
+
+def find_ecr_repo(ecr, name: str) -> Optional[dict]:
+    try:
+        resp = ecr.describe_repositories(repositoryNames=[name])
+        return resp["repositories"][0]
+    except ClientError as e:
+        if "RepositoryNotFoundException" in str(e):
+            return None
+        raise
+
+
+# ---------------------------------------------------------------------------
+# Helpers — misc
+# ---------------------------------------------------------------------------
+
 def add_sg_rule(ec2, sg_id: str, port: int, source: dict, desc: str):
-    """Add a single inbound rule. Skips duplicates."""
+    """Add a single inbound rule. Skips duplicates silently."""
     perm = {"IpProtocol": "tcp", "FromPort": port, "ToPort": port}
     perm.update(source)
     try:
@@ -195,20 +257,27 @@ def resolve_ami(ssm) -> str:
     return resp["Parameter"]["Value"]
 
 
-def create_ecr_repo(ecr) -> dict:
-    """Create ECR repository if it doesn't exist. Idempotent."""
+def _vpce_dns(vpce: dict) -> str:
+    """Return the first private DNS name from a VPC endpoint, or empty string."""
+    for entry in vpce.get("DnsEntries", []):
+        dns = entry.get("DnsName", "")
+        if dns:
+            return dns
+    return ""
+
+
+# ---------------------------------------------------------------------------
+# Create functions — all idempotent
+# ---------------------------------------------------------------------------
+
+def create_ecr_repo(ecr) -> Optional[dict]:
     print("\n=== ECR Repository ===")
-    repo_name = CONFIG["ecr_repo_name"]
-    try:
-        resp = ecr.describe_repositories(repositoryNames=[repo_name])
-        repo = resp["repositories"][0]
-        print(f"○ '{repo_name}' already exists: {repo['repositoryUri']}")
-        return repo
-    except ClientError as e:
-        if "RepositoryNotFoundException" not in str(e):
-            raise
+    existing = find_ecr_repo(ecr, CONFIG["ecr_repo_name"])
+    if existing:
+        print(f"○ '{CONFIG['ecr_repo_name']}' already exists: {existing['repositoryUri']}")
+        return existing
     resp = ecr.create_repository(
-        repositoryName=repo_name,
+        repositoryName=CONFIG["ecr_repo_name"],
         imageScanningConfiguration={"scanOnPush": False},
         imageTagMutability="MUTABLE",
     )
@@ -216,10 +285,6 @@ def create_ecr_repo(ecr) -> dict:
     print(f"✓ Created ECR repo: {repo['repositoryUri']}")
     return repo
 
-
-# ---------------------------------------------------------------------------
-# Create functions
-# ---------------------------------------------------------------------------
 
 def create_security_group(ec2) -> str:
     print("\n=== Security Group ===")
@@ -230,14 +295,13 @@ def create_security_group(ec2) -> str:
     else:
         resp = ec2.create_security_group(
             GroupName=CONFIG["sg_name"],
-            Description="Deadline VNC proxy - allows SSH and VNC from VPC and VPC Lattice",
+            Description="Deadline VNC proxy — SSH, VNC, Lustre from VPC and VPC Lattice",
             VpcId=CONFIG["vpc_id"],
         )
         sg_id = resp["GroupId"]
         ec2.create_tags(Resources=[sg_id], Tags=[{"Key": "Name", "Value": CONFIG["sg_name"]}])
         print(f"✓ Created security group: {sg_id}")
 
-    # Add rules
     vpc_cidr = get_vpc_cidr(ec2)
     prefix_list_id = get_lattice_prefix_list(ec2)
 
@@ -245,12 +309,12 @@ def create_security_group(ec2) -> str:
         add_sg_rule(ec2, sg_id, port,
                     {"IpRanges": [{"CidrIp": vpc_cidr, "Description": f"port {port} from VPC"}]},
                     f"VPC CIDR {vpc_cidr}")
-        if prefix_list_id:
+        # Lustre (988) doesn't need a Lattice rule
+        if prefix_list_id and port != 988:
             add_sg_rule(ec2, sg_id, port,
                         {"PrefixListIds": [{"PrefixListId": prefix_list_id,
                                             "Description": f"port {port} from VPC Lattice"}]},
                         f"VPC Lattice prefix {prefix_list_id}")
-
     return sg_id
 
 
@@ -260,7 +324,6 @@ def create_key_pair(ec2) -> str:
     if existing:
         print(f"○ Key pair '{CONFIG['key_pair_name']}' already exists")
         return CONFIG["key_pair_name"]
-
     resp = ec2.create_key_pair(
         KeyName=CONFIG["key_pair_name"],
         KeyType="rsa",
@@ -276,14 +339,29 @@ def create_key_pair(ec2) -> str:
     return CONFIG["key_pair_name"]
 
 
-def create_ec2_instance(ec2, ssm_client, sg_id: str, key_name: str) -> dict:
+def ensure_instance_profile(ec2, instance_id: str):
+    """Attach SSMManagedEC2Role profile if not already attached."""
+    resp = ec2.describe_iam_instance_profile_associations(
+        Filters=[{"Name": "instance-id", "Values": [instance_id]}]
+    )
+    assocs = resp.get("IamInstanceProfileAssociations", [])
+    active = [a for a in assocs if a["State"] in ("associated", "associating")]
+    if active:
+        print(f"  ○ Instance profile already attached: {active[0]['IamInstanceProfile']['Arn']}")
+        return
+    ec2.associate_iam_instance_profile(
+        InstanceId=instance_id,
+        IamInstanceProfile={"Name": "SSMManagedEC2Role"},
+    )
+    print(f"  ✓ Attached SSMManagedEC2Role to {instance_id}")
     print("\n=== EC2 Proxy Instance ===")
     existing = find_instance_by_name(ec2, CONFIG["instance_name"])
     if existing:
         inst_id = existing["InstanceId"]
-        ip = existing.get("PrivateIpAddress", "pending")
+        ip    = existing.get("PrivateIpAddress", "pending")
         state = existing["State"]["Name"]
-        print(f"○ Instance '{CONFIG['instance_name']}' already exists: {inst_id} ({state}, {ip})")
+        print(f"○ '{CONFIG['instance_name']}' already exists: {inst_id} ({state}, {ip})")
+        ensure_instance_profile(ec2, inst_id)
         return existing
 
     ami_id = resolve_ami(ssm_client)
@@ -292,16 +370,15 @@ def create_ec2_instance(ec2, ssm_client, sg_id: str, key_name: str) -> dict:
     launch_params = dict(
         ImageId=ami_id,
         InstanceType=CONFIG["instance_type"],
-        MinCount=1,
-        MaxCount=1,
+        MinCount=1, MaxCount=1,
         SubnetId=CONFIG["subnet_id"],
         SecurityGroupIds=[sg_id],
         UserData=USER_DATA,
+        IamInstanceProfile={"Name": "SSMManagedEC2Role"},
         TagSpecifications=[{
             "ResourceType": "instance",
             "Tags": [{"Key": "Name", "Value": CONFIG["instance_name"]}],
         }],
-        # Enable SSM access via instance profile if available
         MetadataOptions={"HttpTokens": "required", "HttpEndpoint": "enabled"},
     )
     if key_name:
@@ -312,16 +389,13 @@ def create_ec2_instance(ec2, ssm_client, sg_id: str, key_name: str) -> dict:
     inst_id = instance["InstanceId"]
     print(f"✓ Launched {inst_id} ({CONFIG['instance_type']})")
 
-    # Wait for running state
     print("  Waiting for instance to be running...")
-    waiter = ec2.get_waiter("instance_running")
-    waiter.wait(InstanceIds=[inst_id])
+    ec2.get_waiter("instance_running").wait(InstanceIds=[inst_id])
 
-    # Refresh to get private IP
     desc = ec2.describe_instances(InstanceIds=[inst_id])
     instance = desc["Reservations"][0]["Instances"][0]
-    ip = instance.get("PrivateIpAddress", "unknown")
-    print(f"  Private IP: {ip}")
+    print(f"  Private IP: {instance.get('PrivateIpAddress', 'unknown')}")
+    ensure_instance_profile(ec2, inst_id)
     return instance
 
 
@@ -334,9 +408,8 @@ def create_lattice_resources(ec2, vpc_lattice, ram, sts, private_ip: str) -> dic
     if gw:
         print(f"○ '{CONFIG['resource_gateway_name']}' exists: {gw.get('id')} ({gw.get('status')})")
     else:
-        # Use the same SG we created for the EC2
         sg = find_sg_by_name(ec2, CONFIG["sg_name"], CONFIG["vpc_id"])
-        sg_id = sg["GroupId"] if sg else CONFIG.get("security_group_id", "")
+        sg_id = sg["GroupId"] if sg else ""
         gw = vpc_lattice.create_resource_gateway(
             name=CONFIG["resource_gateway_name"],
             vpcIdentifier=CONFIG["vpc_id"],
@@ -346,17 +419,16 @@ def create_lattice_resources(ec2, vpc_lattice, ram, sts, private_ip: str) -> dic
         print(f"✓ Created resource gateway: {gw.get('id')}")
     result["resource_gateway"] = gw
 
-    # --- Resource Configuration (port 22 — SSH) ---
+    # --- Resource Configuration ---
     print("\n=== VPC Lattice Resource Configuration ===")
     cfg = find_resource_config(vpc_lattice, CONFIG["resource_config_name"])
     if cfg:
         print(f"○ '{CONFIG['resource_config_name']}' exists: {cfg.get('id')} ({cfg.get('status')})")
     else:
-        gateway_id = gw.get("id")
         cfg = vpc_lattice.create_resource_configuration(
             name=CONFIG["resource_config_name"],
             type="SINGLE",
-            resourceGatewayIdentifier=gateway_id,
+            resourceGatewayIdentifier=gw.get("id"),
             portRanges=["22"],
             protocol="TCP",
             resourceConfigurationDefinition={"ipResource": {"ipAddress": private_ip}},
@@ -370,7 +442,6 @@ def create_lattice_resources(ec2, vpc_lattice, ram, sts, private_ip: str) -> dic
     resource_config_arn = cfg.get("arn")
     if share:
         print(f"○ '{CONFIG['ram_share_name']}' exists: {share.get('resourceShareArn')}")
-        # Ensure resource is associated
         if resource_config_arn:
             try:
                 resources = ram.list_resources(
@@ -383,7 +454,7 @@ def create_lattice_resources(ec2, vpc_lattice, ram, sts, private_ip: str) -> dic
                         resourceShareArn=share["resourceShareArn"],
                         resourceArns=[resource_config_arn],
                     )
-                    print(f"  ✓ Associated resource config with existing share")
+                    print("  ✓ Associated resource config with existing share")
             except ClientError as e:
                 print(f"  Warning: {e}")
     else:
@@ -393,73 +464,297 @@ def create_lattice_resources(ec2, vpc_lattice, ram, sts, private_ip: str) -> dic
             allowExternalPrincipals=True,
         )
         share = resp.get("resourceShare", {})
-        share_arn = share.get("resourceShareArn")
         account_id = sts.get_caller_identity()["Account"]
         ram.associate_resource_share(
-            resourceShareArn=share_arn,
+            resourceShareArn=share["resourceShareArn"],
             principals=["fleets.deadline.amazonaws.com"],
             sources=[account_id],
         )
-        print(f"✓ Created RAM share: {share_arn}")
+        print(f"✓ Created RAM share: {share.get('resourceShareArn')}")
     result["ram_share"] = share
 
     return result
 
 
+def create_fsx_filesystem(fsx, ec2) -> dict:
+    print("\n=== FSx for OpenZFS ===")
+    existing = find_fsx_filesystem(fsx, CONFIG["fsx_name"])
+    if existing:
+        fs_id = existing["FileSystemId"]
+        print(f"○ '{CONFIG['fsx_name']}' already exists: {fs_id} ({existing['Lifecycle']})")
+        return existing
+
+    sg = find_sg_by_name(ec2, CONFIG["sg_name"], CONFIG["vpc_id"])
+    sg_id = sg["GroupId"] if sg else ""
+
+    resp = fsx.create_file_system(
+        FileSystemType="OPENZFS",
+        StorageCapacity=CONFIG["fsx_storage_gb"],
+        StorageType="SSD",
+        SubnetIds=[CONFIG["subnet_id"]],
+        SecurityGroupIds=[sg_id],
+        Tags=[{"Key": "Name", "Value": CONFIG["fsx_name"]}],
+        OpenZFSConfiguration={
+            "DeploymentType": CONFIG["fsx_deployment_type"],
+            "ThroughputCapacity": CONFIG["fsx_throughput_mbps"],
+            "AutomaticBackupRetentionDays": 0,  # no backups
+            "CopyTagsToBackups": False,
+            "CopyTagsToVolumes": False,
+            "RootVolumeConfiguration": {
+                "DataCompressionType": "LZ4",
+                "NfsExports": [{
+                    "ClientConfigurations": [{
+                        "Clients": "*",
+                        "Options": ["rw", "crossmnt", "no_root_squash"],
+                    }]
+                }],
+            },
+        },
+    )
+    fs = resp["FileSystem"]
+    print(f"✓ Created FSx OpenZFS: {fs['FileSystemId']} (status: {fs['Lifecycle']}, ~3 min to become available)")
+    return fs
+
+
+def get_fsx_nfs_ip(fsx, ec2, fs_id: str) -> Optional[str]:
+    """Wait for filesystem to be AVAILABLE and return its private IP via ENI lookup."""
+    print(f"  Waiting for FSx {fs_id} to be AVAILABLE...")
+    for _ in range(30):  # up to ~5 min
+        resp = fsx.describe_file_systems(FileSystemIds=[fs_id])
+        fs = resp["FileSystems"][0]
+        if fs["Lifecycle"] == "AVAILABLE":
+            eni_ids = fs.get("NetworkInterfaceIds", [])
+            if eni_ids:
+                eni = ec2.describe_network_interfaces(NetworkInterfaceIds=[eni_ids[0]])
+                ip = eni["NetworkInterfaces"][0]["PrivateIpAddress"]
+                print(f"  FSx AVAILABLE — private IP: {ip}")
+                return ip
+        print(f"  Status: {fs['Lifecycle']}, waiting 10s...")
+        time.sleep(10)
+    return None
+
+
+def update_lattice_fsx_config(vpc_lattice, fsx_ip: str):
+    """Update the existing FSx Lattice resource config to point at the new filesystem IP."""
+    print("\n=== Updating VPC Lattice FSx Resource Config ===")
+    cfg_id = "rcfg-072853a357ca69135"
+    try:
+        vpc_lattice.update_resource_configuration(
+            resourceConfigurationIdentifier=cfg_id,
+            resourceConfigurationDefinition={"ipResource": {"ipAddress": fsx_ip}},
+        )
+        print(f"✓ Updated {cfg_id} → {fsx_ip}")
+    except ClientError as e:
+        print(f"  Warning updating Lattice config: {e}")
+
+
+def create_vpc_endpoint(ec2, vpce_name: str, service_name: str, label: str) -> dict:
+    """Create an Interface VPC endpoint. Idempotent."""
+    print(f"\n=== VPC Endpoint — {label} ===")
+    existing = find_vpc_endpoint(ec2, vpce_name, CONFIG["vpc_id"])
+    if existing:
+        ep_id = existing["VpcEndpointId"]
+        print(f"○ '{vpce_name}' already exists: {ep_id} ({existing['State']})")
+        return existing
+
+    sg = find_sg_by_name(ec2, CONFIG["sg_name"], CONFIG["vpc_id"])
+    sg_id = sg["GroupId"] if sg else ""
+
+    resp = ec2.create_vpc_endpoint(
+        VpcEndpointType="Interface",
+        VpcId=CONFIG["vpc_id"],
+        ServiceName=service_name,
+        SubnetIds=[CONFIG["subnet_id"]],
+        SecurityGroupIds=[sg_id],
+        PrivateDnsEnabled=True,
+        TagSpecifications=[{
+            "ResourceType": "vpc-endpoint",
+            "Tags": [{"Key": "Name", "Value": vpce_name}],
+        }],
+    )
+    ep = resp["VpcEndpoint"]
+    print(f"✓ Created VPC endpoint: {ep['VpcEndpointId']}")
+    return ep
+
+
 # ---------------------------------------------------------------------------
-# Output
+# Output builder — null-safe, works for both dry-run and create
 # ---------------------------------------------------------------------------
 
-def build_output(instance: dict, sg_id: str, lattice: dict, ecr_repo: dict) -> dict:
-    cfg = lattice.get("resource_config", {})
-    config_id = cfg.get("id", "")
-    region = CONFIG["region"]
-    endpoint = f"{config_id}.resource-endpoints.deadline.{region}.amazonaws.com" if config_id else ""
-    ecr_uri = ecr_repo.get("repositoryUri", "")
+def _fsx_mount_info(fs: Optional[dict]) -> dict:
+    if not fs:
+        return {"filesystem_id": None, "dns_name": None, "mount_path": None,
+                "mount_command": None, "lifecycle": None}
+    fs_id = fs.get("FileSystemId", "")
+    dns   = fs.get("DNSName", "")
+    path  = "/mnt/fsx"
+    cmd   = f"mount -t nfs -o nfsvers=4.1 {dns}:/ {path}" if dns else None
+    return {
+        "filesystem_id": fs_id or None,
+        "dns_name":      dns  or None,
+        "mount_path":    path,
+        "mount_command": cmd,
+        "lifecycle":     fs.get("Lifecycle"),
+        "type":          "OPENZFS",
+    }
+
+
+def build_output(
+    instance:    Optional[dict],
+    sg_id:       Optional[str],
+    lattice:     dict,
+    ecr_repo:    Optional[dict],
+    fsx_fs:      Optional[dict],
+    vpce_fsx:    Optional[dict],
+    vpce_bastion: Optional[dict],
+) -> dict:
+    cfg        = lattice.get("resource_config") or {}
+    config_id  = cfg.get("id", "")
+    region     = CONFIG["region"]
+    endpoint   = (f"{config_id}.resource-endpoints.deadline.{region}.amazonaws.com"
+                  if config_id else None)
+
+    inst_id    = instance.get("InstanceId")    if instance else None
+    private_ip = instance.get("PrivateIpAddress") if instance else None
 
     return {
-        "region": region,
-        "vpc_id": CONFIG["vpc_id"],
+        "region":    region,
+        "vpc_id":    CONFIG["vpc_id"],
         "subnet_id": CONFIG["subnet_id"],
+
         "ecr": {
             "repository_name": CONFIG["ecr_repo_name"],
-            "repository_uri": ecr_uri,
+            "repository_uri":  ecr_repo.get("repositoryUri") if ecr_repo else None,
         },
+
         "ec2_instance": {
-            "instance_id": instance.get("InstanceId", ""),
-            "private_ip": instance.get("PrivateIpAddress", ""),
-            "instance_type": CONFIG["instance_type"],
-            "name": CONFIG["instance_name"],
+            "instance_id":       inst_id,
+            "private_ip":        private_ip,
+            "instance_type":     CONFIG["instance_type"],
+            "name":              CONFIG["instance_name"],
+            "ssm_session_command": (
+                f"aws ssm start-session --target {inst_id} --region {region}"
+                if inst_id else None
+            ),
         },
+
         "security_group": {
-            "id": sg_id,
+            "id":   sg_id,
             "name": CONFIG["sg_name"],
         },
+
         "key_pair": CONFIG["key_pair_name"],
+
         "vpc_lattice": {
             "resource_gateway": {
-                "id": lattice.get("resource_gateway", {}).get("id", ""),
+                "id":   lattice.get("resource_gateway", {}).get("id")   if lattice.get("resource_gateway") else None,
                 "name": CONFIG["resource_gateway_name"],
-                "arn": lattice.get("resource_gateway", {}).get("arn", ""),
+                "arn":  lattice.get("resource_gateway", {}).get("arn")  if lattice.get("resource_gateway") else None,
             },
             "resource_config": {
-                "id": config_id,
-                "name": CONFIG["resource_config_name"],
-                "arn": cfg.get("arn", ""),
+                "id":       config_id or None,
+                "name":     CONFIG["resource_config_name"],
+                "arn":      cfg.get("arn") or None,
                 "endpoint": endpoint,
-                "port": 22,
+                "port":     22,
             },
         },
+
         "ram_share": {
             "name": CONFIG["ram_share_name"],
-            "arn": lattice.get("ram_share", {}).get("resourceShareArn", ""),
+            "arn":  lattice.get("ram_share", {}).get("resourceShareArn") if lattice.get("ram_share") else None,
         },
+
+        "fsx": _fsx_mount_info(fsx_fs),
+
+        "vpc_endpoints": {
+            "fsx": {
+                "id":    vpce_fsx.get("VpcEndpointId") if vpce_fsx else None,
+                "name":  CONFIG["fsx_vpce_name"],
+                "state": vpce_fsx.get("State")         if vpce_fsx else None,
+                "dns":   _vpce_dns(vpce_fsx)           if vpce_fsx else None,
+            },
+            "bastion_ssm": {
+                "id":    vpce_bastion.get("VpcEndpointId") if vpce_bastion else None,
+                "name":  CONFIG["bastion_vpce_name"],
+                "state": vpce_bastion.get("State")         if vpce_bastion else None,
+                "dns":   _vpce_dns(vpce_bastion)           if vpce_bastion else None,
+            },
+        },
+
         "next_steps": [
-            "Add the worker SSH public key to the EC2 instance: /home/ssm-user/.ssh/authorized_keys",
+            "Add the worker SSH public key to the EC2: /home/ssm-user/.ssh/authorized_keys",
             f"Attach resource config ARN to your Deadline fleet via console or CLI",
-            f"Use endpoint '{endpoint}' as EC2_PROXY_HOST in the job template",
+            f"Use endpoint '{endpoint}' as EC2_PROXY_HOST in the job template" if endpoint else "Create resources with --create first",
+            f"Mount FSx on workers: {_fsx_mount_info(fsx_fs)['mount_command']}" if fsx_fs else "FSx not yet created",
         ],
     }
+
+
+# ---------------------------------------------------------------------------
+# State check — used by both dry-run and after create
+# ---------------------------------------------------------------------------
+
+def check_state(ec2, vpc_lattice, ram, ecr, fsx) -> dict:
+    """Query all resources and return a state dict (values are resource dicts or None)."""
+    inst  = find_instance_by_name(ec2, CONFIG["instance_name"])
+    sg    = find_sg_by_name(ec2, CONFIG["sg_name"], CONFIG["vpc_id"])
+    kp    = find_key_pair(ec2, CONFIG["key_pair_name"])
+    gw    = find_resource_gateway(vpc_lattice, CONFIG["resource_gateway_name"])
+    cfg   = find_resource_config(vpc_lattice, CONFIG["resource_config_name"])
+    share = find_ram_share(ram, CONFIG["ram_share_name"])
+    repo  = find_ecr_repo(ecr, CONFIG["ecr_repo_name"])
+    fs    = find_fsx_filesystem(fsx, CONFIG["fsx_name"])
+    vpce_fsx     = find_vpc_endpoint(ec2, CONFIG["fsx_vpce_name"],          CONFIG["vpc_id"])
+    vpce_bastion = find_vpc_endpoint(ec2, CONFIG["bastion_vpce_name"],      CONFIG["vpc_id"])
+    vpce_ssmmsg  = find_vpc_endpoint(ec2, CONFIG["ssmmessages_vpce_name"],  CONFIG["vpc_id"])
+    vpce_ec2msg  = find_vpc_endpoint(ec2, CONFIG["ec2messages_vpce_name"],  CONFIG["vpc_id"])
+
+    return dict(
+        instance=inst, sg=sg, key_pair=kp,
+        resource_gateway=gw, resource_config=cfg, ram_share=share,
+        ecr_repo=repo, fsx_fs=fs,
+        vpce_fsx=vpce_fsx, vpce_bastion=vpce_bastion,
+        vpce_ssmmsg=vpce_ssmmsg, vpce_ec2msg=vpce_ec2msg,
+    )
+
+
+def print_state(state: dict):
+    inst         = state["instance"]
+    sg           = state["sg"]
+    kp           = state["key_pair"]
+    gw           = state["resource_gateway"]
+    cfg          = state["resource_config"]
+    share        = state["ram_share"]
+    repo         = state["ecr_repo"]
+    fs           = state["fsx_fs"]
+    vpce_fsx     = state["vpce_fsx"]
+    vpce_bastion = state["vpce_bastion"]
+
+    def _s(v, label): return f"{label}: {v}" if v else "not found"
+
+    print(f"\n{'─'*60}")
+    print(f"EC2 '{CONFIG['instance_name']}':        "
+          + (f"{inst['InstanceId']} ({inst.get('PrivateIpAddress','')}, {inst['State']['Name']})" if inst else "not found"))
+    print(f"SG  '{CONFIG['sg_name']}':  "
+          + (sg["GroupId"] if sg else "not found"))
+    print(f"Key '{CONFIG['key_pair_name']}':  "
+          + ("exists" if kp else "not found"))
+    print(f"Lattice GW '{CONFIG['resource_gateway_name']}':  "
+          + (f"{gw.get('id')} ({gw.get('status')})" if gw else "not found"))
+    print(f"Lattice RC '{CONFIG['resource_config_name']}':  "
+          + (f"{cfg.get('id')} ({cfg.get('status')})" if cfg else "not found"))
+    print(f"RAM Share  '{CONFIG['ram_share_name']}':  "
+          + ("ACTIVE" if share else "not found"))
+    print(f"ECR Repo   '{CONFIG['ecr_repo_name']}':  "
+          + (repo.get("repositoryUri", "exists") if repo else "not found"))
+    print(f"FSx        '{CONFIG['fsx_name']}':  "
+          + (f"{fs['FileSystemId']} ({fs['Lifecycle']})" if fs else "not found"))
+    print(f"VPCE FSx   '{CONFIG['fsx_vpce_name']}':  "
+          + (f"{vpce_fsx['VpcEndpointId']} ({vpce_fsx['State']})" if vpce_fsx else "not found"))
+    print(f"VPCE SSM   '{CONFIG['bastion_vpce_name']}':  "
+          + (f"{vpce_bastion['VpcEndpointId']} ({vpce_bastion['State']})" if vpce_bastion else "not found"))
+    print(f"{'─'*60}")
 
 
 # ---------------------------------------------------------------------------
@@ -467,13 +762,14 @@ def build_output(instance: dict, sg_id: str, lattice: dict, ecr_repo: dict) -> d
 # ---------------------------------------------------------------------------
 
 def main():
-    parser = argparse.ArgumentParser(description="Setup EC2 proxy + VPC Lattice for Deadline VNC access")
-    parser.add_argument("--create", action="store_true", help="Create all resources")
-    parser.add_argument("--output", default="gui-demo/resources.json", help="Output JSON path (default: gui-demo/resources.json)")
-    parser.add_argument("--key-pair", action="store_true", default=False, help="Create an SSH key pair for the EC2 instance (default: False, use SSM instead)")
+    parser = argparse.ArgumentParser(description="Setup EC2 proxy + VPC Lattice + FSx for Deadline VNC access")
+    parser.add_argument("--create",   action="store_true", help="Create all resources")
+    parser.add_argument("--output",   default="gui-demo/resources.json", help="Output JSON path")
+    parser.add_argument("--key-pair", action="store_true", default=False,
+                        help="Create an SSH key pair (default: use SSM instead)")
     args = parser.parse_args()
 
-    ec2, vpc_lattice, ram, ssm_client, sts, ecr = get_clients()
+    ec2, vpc_lattice, ram, ssm_client, sts, ecr, fsx = get_clients()
 
     print("=" * 60)
     print("Deadline Cloud VNC Proxy — Infrastructure Setup")
@@ -484,75 +780,108 @@ def main():
     print(f"Mode:    {'CREATE' if args.create else 'DRY RUN (use --create to provision)'}")
 
     if not args.create:
-        # Just show current state
         print("\n--- Current State ---")
-        inst = find_instance_by_name(ec2, CONFIG["instance_name"])
-        print(f"EC2 '{CONFIG['instance_name']}': {inst['InstanceId'] + ' (' + inst.get('PrivateIpAddress','') + ')' if inst else 'not found'}")
-        sg = find_sg_by_name(ec2, CONFIG["sg_name"], CONFIG["vpc_id"])
-        print(f"SG  '{CONFIG['sg_name']}': {sg['GroupId'] if sg else 'not found'}")
-        kp = find_key_pair(ec2, CONFIG["key_pair_name"])
-        print(f"Key '{CONFIG['key_pair_name']}': {'exists' if kp else 'not found'}")
-        gw = find_resource_gateway(vpc_lattice, CONFIG["resource_gateway_name"])
-        print(f"Lattice GW '{CONFIG['resource_gateway_name']}': {gw.get('id') if gw else 'not found'}")
-        cfg = find_resource_config(vpc_lattice, CONFIG["resource_config_name"])
-        print(f"Lattice RC '{CONFIG['resource_config_name']}': {cfg.get('id') if cfg else 'not found'}")
-        share = find_ram_share(ram, CONFIG["ram_share_name"])
-        print(f"RAM Share  '{CONFIG['ram_share_name']}': {'ACTIVE' if share else 'not found'}")
-        try:
-            ecr.describe_repositories(repositoryNames=[CONFIG["ecr_repo_name"]])
-            print(f"ECR Repo   '{CONFIG['ecr_repo_name']}': exists")
-        except ClientError:
-            print(f"ECR Repo   '{CONFIG['ecr_repo_name']}': not found")
-        print("\nRun with --create to provision resources.")
+        state = check_state(ec2, vpc_lattice, ram, ecr, fsx)
+        print_state(state)
+
+        # Build lattice dict from found resources for output
+        lattice = {
+            "resource_gateway": state["resource_gateway"],
+            "resource_config":  state["resource_config"],
+            "ram_share":        state["ram_share"],
+        }
+        output = build_output(
+            instance=state["instance"],
+            sg_id=state["sg"]["GroupId"] if state["sg"] else None,
+            lattice=lattice,
+            ecr_repo=state["ecr_repo"],
+            fsx_fs=state["fsx_fs"],
+            vpce_fsx=state["vpce_fsx"],
+            vpce_bastion=state["vpce_bastion"],
+        )
+        with open(args.output, "w") as f:
+            json.dump(output, f, indent=2, default=str)
+        print(f"\n✓ Wrote current state to {args.output} (null = not yet created)")
+        print("Run with --create to provision missing resources.")
         return
 
     # --- Create everything ---
     ecr_repo = create_ecr_repo(ecr)
-    sg_id = create_security_group(ec2)
+    sg_id    = create_security_group(ec2)
+
     key_name = None
     if args.key_pair:
         key_name = create_key_pair(ec2)
     else:
         print("\n=== SSH Key Pair ===")
         print("○ Skipped (using SSM access). Pass --key-pair to create one.")
-    instance = create_ec2_instance(ec2, ssm_client, sg_id, key_name)
+
+    instance   = create_ec2_instance(ec2, ssm_client, sg_id, key_name)
     private_ip = instance.get("PrivateIpAddress", "")
 
-    lattice = create_lattice_resources(ec2, vpc_lattice, ram, sts, private_ip)
+    lattice      = create_lattice_resources(ec2, vpc_lattice, ram, sts, private_ip)
+    fsx_fs       = create_fsx_filesystem(fsx, ec2)
+    # Wait for AVAILABLE and update the Lattice config to point at the new filesystem
+    if fsx_fs and fsx_fs.get("Lifecycle") != "AVAILABLE":
+        fsx_ip = get_fsx_nfs_ip(fsx, ec2, fsx_fs["FileSystemId"])
+    else:
+        # Already available — look up IP from ENI
+        eni_ids = fsx_fs.get("NetworkInterfaceIds", []) if fsx_fs else []
+        if eni_ids:
+            eni = ec2.describe_network_interfaces(NetworkInterfaceIds=[eni_ids[0]])
+            fsx_ip = eni["NetworkInterfaces"][0]["PrivateIpAddress"]
+        else:
+            fsx_ip = None
+    if fsx_ip:
+        update_lattice_fsx_config(vpc_lattice, fsx_ip)
+    vpce_fsx     = create_vpc_endpoint(ec2, CONFIG["fsx_vpce_name"],          CONFIG["fsx_vpce_service"],          "FSx")
+    vpce_bastion = create_vpc_endpoint(ec2, CONFIG["bastion_vpce_name"],      CONFIG["bastion_vpce_service"],      "SSM / Bastion")
+    create_vpc_endpoint(ec2, CONFIG["ssmmessages_vpce_name"], CONFIG["ssmmessages_vpce_service"], "SSM Messages")
+    create_vpc_endpoint(ec2, CONFIG["ec2messages_vpce_name"], CONFIG["ec2messages_vpce_service"], "EC2 Messages")
 
-    # --- Write output JSON ---
-    output = build_output(instance, sg_id, lattice, ecr_repo)
+    output = build_output(
+        instance=instance,
+        sg_id=sg_id,
+        lattice=lattice,
+        ecr_repo=ecr_repo,
+        fsx_fs=fsx_fs,
+        vpce_fsx=vpce_fsx,
+        vpce_bastion=vpce_bastion,
+    )
     with open(args.output, "w") as f:
         json.dump(output, f, indent=2, default=str)
     print(f"\n✓ Wrote resource manifest to {args.output}")
 
     # --- Summary ---
-    print("\n" + "=" * 60)
-    print("DONE")
-    print("=" * 60)
-    cfg_id = lattice.get("resource_config", {}).get("id", "")
-    endpoint = f"{cfg_id}.resource-endpoints.deadline.{CONFIG['region']}.amazonaws.com"
+    cfg_id   = lattice.get("resource_config", {}).get("id", "")
+    endpoint = f"{cfg_id}.resource-endpoints.deadline.{CONFIG['region']}.amazonaws.com" if cfg_id else "pending"
+    fsx_info = _fsx_mount_info(fsx_fs)
+
     print(f"""
-ECR Repository: {ecr_repo.get('repositoryUri', '')}
-EC2 Instance:  {instance.get('InstanceId')} ({private_ip})
-Security Group: {sg_id}
+{'='*60}
+DONE
+{'='*60}
+ECR Repository:       {ecr_repo.get('repositoryUri', '')}
+EC2 Instance:         {instance.get('InstanceId')} ({private_ip})
+Security Group:       {sg_id}
 VPC Lattice Endpoint: {endpoint}:22
+FSx OpenZFS:          {fsx_fs.get('FileSystemId') if fsx_fs else 'n/a'} ({fsx_fs.get('Lifecycle') if fsx_fs else 'n/a'})
+FSx Mount Command:    {fsx_info['mount_command']}
+VPCE FSx:             {vpce_fsx.get('VpcEndpointId')}
+VPCE SSM:             {vpce_bastion.get('VpcEndpointId')}
 
 Next steps:
-  1. Add the worker's SSH public key to the EC2:
+  1. Add the worker SSH public key to the EC2:
      /home/ssm-user/.ssh/authorized_keys
 
-  2. Attach the resource config to your Deadline fleet (console or CLI):
+  2. Attach the resource config to your Deadline fleet:
      ARN: {lattice.get('resource_config', {}).get('arn', '')}
 
-  3. Update job template EC2_PROXY_HOST default to:
+  3. Update job template EC2_PROXY_HOST to:
      {endpoint}
 
-  4. Submit a job and connect:
-     aws ssm start-session --target {instance.get('InstanceId')} --region {CONFIG['region']} \\
-       --document-name AWS-StartPortForwardingSession \\
-       --parameters '{{"portNumber":["6080"],"localPortNumber":["6080"]}}'
-     Then open http://localhost:6080/vnc.html
+  4. Mount FSx on workers (once filesystem is AVAILABLE):
+     {fsx_info['mount_command']}
 """)
 
 

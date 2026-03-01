@@ -63,6 +63,23 @@ DCV is free on EC2 but the instance IAM role needs:
 }
 ```
 
+## Prerequisites
+
+### Deadline Service Quota
+
+Before attaching the VPC Lattice resource configuration to your fleet, you need a quota increase:
+
+- **Quota:** `max-resource-configurations-per-fleet`
+- **Required value:** `2`
+- Request via the AWS Service Quotas console under **AWS Deadline Cloud**, or via CLI:
+  ```bash
+  aws service-quotas request-service-quota-increase \
+    --service-code deadline \
+    --quota-code max-resource-configurations-per-fleet \
+    --desired-value 2 \
+    --region us-west-2
+  ```
+
 ## Quick Start
 
 ```bash

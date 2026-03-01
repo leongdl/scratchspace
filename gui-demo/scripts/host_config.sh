@@ -30,6 +30,9 @@ sudo nvidia-ctk cdi generate --output=/etc/cdi/nvidia.yaml
 # Restart Docker to apply NVIDIA runtime config
 sudo systemctl restart docker
 
+# FSx for Lustre client — required to mount deadline-shared-fs (fs-0b20bb08cf7a694ed)
+sudo dnf install -y lustre-client
+
 # # Create 32GB swap (uncomment if loading large models e.g. Wan 2.1 14B on <=30GB RAM)
 # sudo fallocate -l 32G /swapfile
 # sudo chmod 600 /swapfile

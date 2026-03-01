@@ -49,4 +49,4 @@ That's it. Steps 3-4 are one-time setup. After that, just repeat 5-7 each time y
 
 - Desktop: MATE + VirtualGL (GPU-accelerated OpenGL via `vglrun`)
 - Remote display: Amazon DCV 2025.0 on port 8443
-- Blender 5.0 on the desktop, pre-configured with `vglrun` for GPU rendering
+- Image: `257639634185.dkr.ecr.us-west-2.amazonaws.com/desktop-demo-dcv:latest`

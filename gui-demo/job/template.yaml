@@ -72,6 +72,19 @@ steps:
         docker stop rocky-dcv-desktop 2>/dev/null || true
         docker rm rocky-dcv-desktop 2>/dev/null || true
         docker container prune -f
+
+        # Mount FSx for OpenZFS via NFS through VPC Lattice endpoint
+        echo "Mounting FSx filesystem..."
+        FSX_MOUNT="$HOME/fsx"
+        FSX_LATTICE="rcfg-072853a357ca69135.resource-endpoints.deadline.us-west-2.amazonaws.com"
+        mkdir -p "$FSX_MOUNT"
+        if mountpoint -q "$FSX_MOUNT"; then
+          echo "FSx already mounted, remounting..."
+          sudo umount "$FSX_MOUNT"
+        fi
+        sudo mount -t nfs -o nfsvers=4.1,rsize=1048576,wsize=1048576,hard,timeo=600,retrans=2 \
+          "${FSX_LATTICE}:/" "$FSX_MOUNT"
+        echo "FSx mounted at $FSX_MOUNT"
         
         # Setup SSH key from job attachment
         echo "Setting up SSH key..."
@@ -96,6 +109,7 @@ steps:
           --network host \
           --cap-add SYS_PTRACE \
           --device /dev/dri:/dev/dri \
+          -v "$HOME/fsx:/mnt/fsx" \
           --name rocky-dcv-desktop \
           {{Param.ECR_REGISTRY}}/{{Param.VNC_REPOSITORY}}:{{Param.VNC_TAG}})
         
@@ -202,6 +216,9 @@ steps:
         echo "Stopping DCV container..."
         docker stop rocky-dcv-desktop || true
         docker rm rocky-dcv-desktop || true
+
+        echo "Unmounting FSx..."
+        sudo umount "$HOME/fsx" 2>/dev/null || true
         
         echo "Cleaning up Docker resources..."
         docker container prune -f
