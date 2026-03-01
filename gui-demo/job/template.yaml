@@ -1,18 +1,18 @@
 specificationVersion: 'jobtemplate-2023-09'
-name: Rocky-VNC-Desktop
+name: Rocky-DCV-Desktop
 parameterDefinitions:
 - name: Message
   type: STRING
-  default: Starting Rocky Linux VNC Desktop
+  default: Starting Rocky Linux DCV Desktop
 - name: ECR_REGISTRY
   type: STRING
   default: 257639634185.dkr.ecr.us-west-2.amazonaws.com
 - name: VNC_REPOSITORY
   type: STRING
-  default: desktop-demo
+  default: desktop-demo-dcv
 - name: VNC_TAG
   type: STRING
-  default: rocky-vnc
+  default: latest
 - name: AWS_REGION
   type: STRING
   default: us-west-2
@@ -59,7 +59,7 @@ steps:
         
         echo '{{Param.Message}}'
         echo "=============================================="
-        echo "Starting Rocky Linux VNC Desktop"
+        echo "Starting Rocky Linux DCV Desktop"
         echo "=============================================="
         echo "Current user: $(whoami)"
         echo "Current directory: $(pwd)"
@@ -69,8 +69,8 @@ steps:
         
         # Cleanup any orphaned containers from previous runs
         echo "Cleaning up orphaned containers..."
-        docker stop rocky-vnc-desktop 2>/dev/null || true
-        docker rm rocky-vnc-desktop 2>/dev/null || true
+        docker stop rocky-dcv-desktop 2>/dev/null || true
+        docker rm rocky-dcv-desktop 2>/dev/null || true
         docker container prune -f
         
         # Setup SSH key from job attachment
@@ -86,47 +86,50 @@ steps:
         echo "Pulling VNC container image..."
         docker pull {{Param.ECR_REGISTRY}}/{{Param.VNC_REPOSITORY}}:{{Param.VNC_TAG}}
         
-        # Start the VNC container with host networking
-        echo "Starting VNC container with --network host..."
+        # Start the DCV container with host networking
+        echo "Starting DCV container with --network host..."
         CONTAINER_ID=$(docker run -d \
           --runtime=nvidia \
+          --gpus all \
           -e NVIDIA_VISIBLE_DEVICES=all \
           -e NVIDIA_DRIVER_CAPABILITIES=compute,utility,graphics \
           --network host \
-          --name rocky-vnc-desktop \
+          --cap-add SYS_PTRACE \
+          --device /dev/dri:/dev/dri \
+          --name rocky-dcv-desktop \
           {{Param.ECR_REGISTRY}}/{{Param.VNC_REPOSITORY}}:{{Param.VNC_TAG}})
         
         echo "Container started: $CONTAINER_ID"
         
-        # Wait for VNC to be ready
-        echo "Waiting for noVNC to start on port 6080..."
+        # Wait for DCV to be ready
+        echo "Waiting for DCV to start on port 8443..."
         for i in {1..30}; do
-          if curl -s --max-time 2 http://localhost:6080/ > /dev/null 2>&1; then
-            echo "noVNC is ready!"
+          if curl -sk --max-time 2 https://localhost:8443/ > /dev/null 2>&1; then
+            echo "DCV is ready!"
             break
           fi
           echo "Waiting... ($i/30)"
           echo "Docker containers:"
           docker ps
           echo "Container logs:"
-          docker logs rocky-vnc-desktop 2>&1 | tail -20
+          docker logs rocky-dcv-desktop 2>&1 | tail -20
           echo "---"
           sleep 2
         done
         
-        # Verify VNC is running
-        if ! curl -s --max-time 2 http://localhost:6080/ > /dev/null 2>&1; then
-          echo "ERROR: noVNC failed to start"
-          echo "Checking if port 6080 is listening:"
-          ss -tlnp | grep 6080 || echo "Port 6080 not found"
+        # Verify DCV is running
+        if ! curl -sk --max-time 2 https://localhost:8443/ > /dev/null 2>&1; then
+          echo "ERROR: DCV failed to start"
+          echo "Checking if port 8443 is listening:"
+          ss -tlnp | grep 8443 || echo "Port 8443 not found"
           echo "Docker logs:"
-          docker logs rocky-vnc-desktop
+          docker logs rocky-dcv-desktop
           exit 1
         fi
         
         echo ""
         echo "=============================================="
-        echo "VNC Desktop is running on port 6080"
+        echo "DCV Desktop is running on port 8443"
         echo "=============================================="
         echo ""
         
@@ -135,10 +138,10 @@ steps:
         echo "EC2 Proxy: {{Param.EC2_PROXY_HOST}}"
         
         # Start reverse SSH tunnel using the attached key
-        # -R 6080:localhost:6080 = Forward EC2:6080 to Worker:6080
+        # -R 8443:localhost:8443 = Forward EC2:8443 to Worker:8443
         echo "Starting reverse SSH tunnel..."
         ssh -i ~/.ssh/vnc_tunnel_key \
-            -R 6080:localhost:6080 \
+            -R 8443:localhost:8443 \
             -N \
             -o StrictHostKeyChecking=no \
             -o ServerAliveInterval=60 \
@@ -152,9 +155,9 @@ steps:
         # Keep the session alive
         echo ""
         echo "=============================================="
-        echo "VNC Desktop session active"
-        echo "Access via: http://localhost:6080/vnc.html (from Mac)"
-        echo "VNC Password: password"
+        echo "DCV Desktop session active"
+        echo "Access via: https://localhost:8443 (from Mac)"
+        echo "Credentials: rockyuser / rocky"
         echo "Session will end in {{Param.SESSION_DURATION}} seconds"
         echo "=============================================="
         
@@ -170,8 +173,8 @@ steps:
           docker ps
           
           # Check if container is still running
-          if ! docker ps | grep -q rocky-vnc-desktop; then
-            echo "WARNING: VNC container stopped unexpectedly"
+          if ! docker ps | grep -q rocky-dcv-desktop; then
+            echo "WARNING: DCV container stopped unexpectedly"
             break
           fi
           
@@ -179,7 +182,7 @@ steps:
           if ! kill -0 $SSH_PID 2>/dev/null; then
             echo "WARNING: SSH tunnel died, restarting..."
             ssh -i ~/.ssh/vnc_tunnel_key \
-                -R 6080:localhost:6080 \
+                -R 8443:localhost:8443 \
                 -N \
                 -o StrictHostKeyChecking=no \
                 -o ServerAliveInterval=60 \
@@ -196,12 +199,12 @@ steps:
         echo "Stopping SSH tunnel..."
         kill $SSH_PID 2>/dev/null || true
         
-        echo "Stopping VNC container..."
-        docker stop rocky-vnc-desktop || true
-        docker rm rocky-vnc-desktop || true
+        echo "Stopping DCV container..."
+        docker stop rocky-dcv-desktop || true
+        docker rm rocky-dcv-desktop || true
         
         echo "Cleaning up Docker resources..."
         docker container prune -f
         docker image prune -f
         
-        echo "VNC Desktop session ended."
+        echo "DCV Desktop session ended."

@@ -4,3 +4,10 @@
 opt
 *.rpm
 gui/comfyui/job/comfyui_tunnel_key
+
+# Credentials — never commit these
+creds.sh
+*.pem
+*.key
+*_tunnel_key
+*_tunnel_key.pub
