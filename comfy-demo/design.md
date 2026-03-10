@@ -76,27 +76,26 @@ The DAG uses native ComfyUI core nodes (v0.3.54+) for Wan 2.2 S2V — no WanVide
 
 ```
 comfyui-rocky:latest          (base: Rocky 9 + CUDA 12.4 + Python 3.12 + ComfyUI + torch)
-  └── comfyui-sdxl:latest     (+ SDXL checkpoints, shared base for all variants)
-        └── comfyui-wan22-s2v:latest   (+ Wan 2.2 S2V models, this container)
+  └── comfyui-wan22-s2v:latest   (+ Wan 2.2 S2V models, this container)
 ```
 
-Layers on `comfyui-sdxl:latest` like the existing wanvideo containers. No custom nodes to install, no native CUDA extensions — pure model downloads.
+Layers directly on `comfyui-rocky:latest` — no SDXL layer needed since the DAG doesn't reference any SDXL checkpoints. This saves ~13GB compared to the existing wanvideo containers that inherit from `comfyui-sdxl`. No custom nodes to install, no native CUDA extensions — pure model downloads.
 
-### Dockerfile Plan (Dockerfile.wan22-s2v)
+### Dockerfile (Dockerfile.wan22-s2v)
 
 ```
-FROM comfyui-sdxl:latest
+FROM comfyui-rocky:latest
 
-# Create model directories (audio_encoders is new)
+# Create model directories (audio_encoders is new for S2V)
 mkdir -p diffusion_models/ text_encoders/ audio_encoders/ loras/
 
-# Bake 5 models:
-# 1. wan2.2_s2v_14B_fp8_scaled.safetensors → diffusion_models/  (~13.3GB)
-# 2. umt5_xxl_fp8_e4m3fn_scaled.safetensors → text_encoders/    (~5.3GB)
-# 3. wan_2.1_vae.safetensors → vae/                              (~300MB)
-# 4. wav2vec2_large_english_fp16.safetensors → audio_encoders/   (~1.2GB)
-# 5. wan2.2_t2v_lightx2v_4steps_lora_v1.1_high_noise.safetensors → loras/ (~200MB)
-# 6. taew2_1.safetensors → vae_approx/                           (~5MB)
+# Bake 5 models + 1 preview decoder:
+# 1. wan2.2_s2v_14B_fp8_scaled.safetensors → diffusion_models/  (16GB)
+# 2. umt5_xxl_fp8_e4m3fn_scaled.safetensors → text_encoders/    (6.3GB)
+# 3. wan_2.1_vae.safetensors → vae/                              (243MB)
+# 4. wav2vec2_large_english_fp16.safetensors → audio_encoders/   (602MB)
+# 5. wan2.2_t2v_lightx2v_4steps_lora_v1.1_high_noise.safetensors → loras/ (1.2GB)
+# 6. taew2_1.safetensors → vae_approx/                           (22MB)
 
 # No custom nodes needed — all nodes are comfy-core
 # No pip installs needed beyond base
@@ -128,16 +127,17 @@ The fp8 quantization makes this much more accessible than the fp16 wanvideo vari
 
 | Layer | Size |
 |-------|------|
-| comfyui-sdxl:latest (inherited) | ~46GB |
-| wan2.2_s2v_14B_fp8_scaled | ~13.3GB |
-| umt5_xxl_fp8_e4m3fn_scaled | ~5.3GB |
-| wan_2.1_vae | ~300MB |
-| wav2vec2_large_english_fp16 | ~1.2GB |
-| LightX2V LoRA | ~200MB |
-| chown layer | metadata only |
-| **Total** | **~66GB** |
+| comfyui-rocky:latest (base) | 19.5GB |
+| wan2.2_s2v_14B_fp8_scaled | 16GB |
+| umt5_xxl_fp8_e4m3fn_scaled | 6.3GB |
+| wan_2.1_vae | 243MB |
+| wav2vec2_large_english_fp16 | 602MB |
+| LightX2V LoRA | 1.2GB |
+| taew2_1 (TAESD preview) | 22MB |
+| chown layer | 25.3GB (metadata-only, no new data) |
+| **Docker-reported total** | **70GB** |
 
-Significantly smaller than the fp16 wanvideo image (~140GB).
+No SDXL layer — saves ~13GB vs the existing wanvideo containers.
 
 ## Folder Structure
 
@@ -204,14 +204,13 @@ comfy-gui/
 ## Build & Run
 
 ```bash
-cd gui/comfyui
+cd comfy-demo
 
-# 1. Base + SDXL (if not already built)
-docker build -t comfyui-rocky:latest .
-docker build -f Dockerfile.sdxl -t comfyui-sdxl:latest .
+# 1. Base image (~19.5GB, ~6 min)
+docker build -t comfyui-rocky:latest -f Dockerfile .
 
-# 2. Wan 2.2 S2V
-docker build -f ../comfy-gui/Dockerfile.wan22-s2v -t comfyui-wan22-s2v:latest .
+# 2. Wan 2.2 S2V layer (~70GB total, ~10 min — downloads ~24GB models)
+docker build -t comfyui-wan22-s2v:latest -f Dockerfile.wan22-s2v .
 
 # 3. Run
 docker run -d \
@@ -223,12 +222,71 @@ docker run -d \
     comfyui-wan22-s2v:latest
 ```
 
+### Host Setup (required before first run)
+
+```bash
+# Install NVIDIA Container Toolkit
+curl -s -L https://nvidia.github.io/libnvidia-container/stable/rpm/nvidia-container-toolkit.repo | \
+  sudo tee /etc/yum.repos.d/nvidia-container-toolkit.repo
+sudo dnf install -y nvidia-container-toolkit
+
+# Configure Docker runtime + CDI spec
+sudo nvidia-ctk runtime configure --runtime=docker
+sudo mkdir -p /etc/cdi && sudo nvidia-ctk cdi generate --output=/etc/cdi/nvidia.yaml
+sudo systemctl restart docker
+```
+
 ## ComfyUI Version Requirement
 
 The DAG uses native Wan 2.2 S2V nodes (`AudioEncoderLoader`, `AudioEncoderEncode`, and the S2V subgraph components) which were added in ComfyUI core v0.3.54. The base `comfyui-rocky` Dockerfile clones `latest` from GitHub, which should include these. If the base image was built before these nodes were added, it needs to be rebuilt.
 
-## Open Questions
+## Verified Build Results
 
-1. The DAG has a second UNETLoader (node 161, mode=4/muted) — this appears to be a disabled alternate model slot. We only need to bake the active one.
-2. The `audio_encoders/` directory is new to this workflow — verify ComfyUI's `folder_paths` includes it by default in v0.3.54+.
-3. The LightX2V LoRA is labeled `t2v` but applied to the S2V model — confirm compatibility (likely fine since S2V shares the T2V backbone).
+Built and verified on g6.xlarge (NVIDIA L4 24GB, Amazon Linux 2023, driver 570.211.01).
+
+### Image Details
+
+| Property | Value |
+|----------|-------|
+| Image | `comfyui-wan22-s2v:latest` |
+| Docker-reported size | 70GB |
+| Base image | `comfyui-rocky:latest` (19.5GB) |
+| ComfyUI version | 0.16.4 |
+| PyTorch version | 2.6.0+cu124 |
+| Python version | 3.12.12 |
+| Frontend version | 1.39.19 |
+
+### Baked Model Files (verified via `docker exec`)
+
+```
+/opt/comfyui/models/
+├── diffusion_models/
+│   └── wan2.2_s2v_14B_fp8_scaled.safetensors          16GB
+├── text_encoders/
+│   └── umt5_xxl_fp8_e4m3fn_scaled.safetensors         6.3GB
+├── vae/
+│   └── wan_2.1_vae.safetensors                         243MB
+├── audio_encoders/
+│   └── wav2vec2_large_english_fp16.safetensors         602MB
+├── loras/
+│   └── wan2.2_t2v_lightx2v_4steps_lora_v1.1_high_noise.safetensors  1.2GB
+└── vae_approx/
+    └── taew2_1.safetensors                             22MB
+```
+
+Total baked model data: ~24.4GB
+
+### Runtime Verification
+
+- GPU detected inside container: NVIDIA L4, 23034 MiB VRAM
+- ComfyUI API responding on `http://localhost:8188`
+- All 6 model files present with correct sizes and ownership (`comfyui:comfyui`)
+- No custom nodes required — all DAG nodes are comfy-core v0.3.54+
+- `audio_encoders/` directory recognized by ComfyUI's folder_paths system
+
+### Notes
+
+1. The DAG has a second UNETLoader (node 161, mode=4/muted) — disabled alternate model slot, not needed.
+2. The LightX2V LoRA is labeled `t2v` but works with the S2V model (shared backbone).
+3. The VOLUME directive in the base Dockerfile causes Docker to copy all baked models into an anonymous volume on first run, effectively doubling disk usage. For production, consider bind-mounting or removing the VOLUME line.
+4. L4 24GB is tight for this workflow — g6e.xlarge (L40S 48GB) recommended for production use.

@@ -3,6 +3,11 @@
 # Requires: comfyui-rocky:latest base image (built from Dockerfile in this folder)
 # VRAM: ~24-28GB inference (fits on L40S 48GB, tight on L4/A10G 24GB)
 #
+# On GPUs with <=24GB VRAM (L4, A10G), the startup script auto-detects VRAM and
+# enables --lowvram mode, which offloads model chunks to CPU RAM. This works but
+# is slower. For full speed, use g6e.xlarge (L40S 48GB).
+# To override auto-detection: -e LOW_VRAM=true or -e AUTO_VRAM=false
+#
 # All nodes in the comfy-dag.json workflow are comfy-core v0.3.54+ — no custom nodes needed.
 # Models: Wan 2.2 S2V 14B fp8, UMT5-XXL fp8, Wan 2.1 VAE, wav2vec2 audio encoder, LightX2V LoRA
 

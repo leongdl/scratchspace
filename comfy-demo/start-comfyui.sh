@@ -55,10 +55,21 @@ if [ "${ENABLE_MANAGER}" = "true" ]; then
 fi
 
 # GPU memory optimization flags
+# Auto-detect VRAM and enable --lowvram for GPUs with <=24GB (e.g. L4, A10G)
+# The Wan 2.2 S2V 14B fp8 model needs ~28GB VRAM at peak; --lowvram offloads
+# model chunks to CPU RAM to fit on smaller GPUs at the cost of speed.
 if [ "${LOW_VRAM}" = "true" ]; then
     COMFYUI_ARGS="${COMFYUI_ARGS} --lowvram"
 elif [ "${HIGH_VRAM}" = "true" ]; then
     COMFYUI_ARGS="${COMFYUI_ARGS} --highvram"
+elif [ "${AUTO_VRAM}" != "false" ]; then
+    VRAM_MB=$(nvidia-smi --query-gpu=memory.total --format=csv,noheader,nounits 2>/dev/null | head -1)
+    if [ -n "${VRAM_MB}" ] && [ "${VRAM_MB}" -le 24576 ]; then
+        echo "Auto-detected ${VRAM_MB}MB VRAM (<=24GB) — enabling --lowvram"
+        COMFYUI_ARGS="${COMFYUI_ARGS} --lowvram"
+    elif [ -n "${VRAM_MB}" ]; then
+        echo "Auto-detected ${VRAM_MB}MB VRAM (>24GB) — using normal VRAM mode"
+    fi
 fi
 
 # CPU-only mode
