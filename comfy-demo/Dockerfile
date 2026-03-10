@@ -79,7 +79,6 @@ USER root
 # Copy startup and tunnel scripts
 COPY start-comfyui.sh /start-comfyui.sh
 COPY reverse-tunnel.sh /reverse-tunnel.sh
-COPY patch_torch.py /opt/comfyui/patch_torch.py
 RUN chmod +x /start-comfyui.sh /reverse-tunnel.sh
 
 # Patch torch.AcceleratorError for torch < 2.8
