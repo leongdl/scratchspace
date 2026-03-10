@@ -1,0 +1,62 @@
+# ComfyUI with Wan 2.2 S2V 14B fp8 (Speech-to-Video) pre-baked
+# Build: docker build -f Dockerfile.wan22-s2v -t comfyui-wan22-s2v:latest .
+# Requires: comfyui-rocky:latest base image (built from Dockerfile in this folder)
+# VRAM: ~24-28GB inference (fits on L40S 48GB, tight on L4/A10G 24GB)
+#
+# All nodes in the comfy-dag.json workflow are comfy-core v0.3.54+ — no custom nodes needed.
+# Models: Wan 2.2 S2V 14B fp8, UMT5-XXL fp8, Wan 2.1 VAE, wav2vec2 audio encoder, LightX2V LoRA
+
+FROM comfyui-rocky:latest
+
+USER root
+
+# Create model directories (audio_encoders is new for S2V workflows)
+RUN mkdir -p \
+    /opt/comfyui/models/diffusion_models \
+    /opt/comfyui/models/text_encoders \
+    /opt/comfyui/models/audio_encoders \
+    /opt/comfyui/models/loras
+
+# --- Bake models from comfy-dag.json ---
+
+# 1. Wan 2.2 S2V 14B fp8_scaled diffusion model (~13.3GB)
+#    Node: UNETLoader → diffusion_models/
+#    Source: https://huggingface.co/Comfy-Org/Wan_2.2_ComfyUI_Repackaged
+RUN wget -q --show-progress -O /opt/comfyui/models/diffusion_models/wan2.2_s2v_14B_fp8_scaled.safetensors \
+    "https://huggingface.co/Comfy-Org/Wan_2.2_ComfyUI_Repackaged/resolve/main/split_files/diffusion_models/wan2.2_s2v_14B_fp8_scaled.safetensors"
+
+# 2. UMT5-XXL fp8 text encoder (~5.3GB)
+#    Node: CLIPLoader → text_encoders/
+#    Source: https://huggingface.co/Comfy-Org/Wan_2.1_ComfyUI_repackaged
+RUN wget -q --show-progress -O /opt/comfyui/models/text_encoders/umt5_xxl_fp8_e4m3fn_scaled.safetensors \
+    "https://huggingface.co/Comfy-Org/Wan_2.1_ComfyUI_repackaged/resolve/main/split_files/text_encoders/umt5_xxl_fp8_e4m3fn_scaled.safetensors"
+
+# 3. Wan 2.1 VAE (~300MB)
+#    Node: VAELoader → vae/
+#    Source: https://huggingface.co/Comfy-Org/Wan_2.2_ComfyUI_Repackaged
+RUN wget -q --show-progress -O /opt/comfyui/models/vae/wan_2.1_vae.safetensors \
+    "https://huggingface.co/Comfy-Org/Wan_2.2_ComfyUI_Repackaged/resolve/main/split_files/vae/wan_2.1_vae.safetensors"
+
+# 4. wav2vec2 audio encoder (~1.2GB)
+#    Node: AudioEncoderLoader → audio_encoders/
+#    Source: https://huggingface.co/Comfy-Org/Wan_2.2_ComfyUI_Repackaged
+RUN wget -q --show-progress -O /opt/comfyui/models/audio_encoders/wav2vec2_large_english_fp16.safetensors \
+    "https://huggingface.co/Comfy-Org/Wan_2.2_ComfyUI_Repackaged/resolve/main/split_files/audio_encoders/wav2vec2_large_english_fp16.safetensors"
+
+# 5. LightX2V 4-step LoRA (~200MB)
+#    Node: LoraLoaderModelOnly → loras/
+#    Source: https://huggingface.co/Comfy-Org/Wan_2.2_ComfyUI_Repackaged
+RUN wget -q --show-progress -O /opt/comfyui/models/loras/wan2.2_t2v_lightx2v_4steps_lora_v1.1_high_noise.safetensors \
+    "https://huggingface.co/Comfy-Org/Wan_2.2_ComfyUI_Repackaged/resolve/main/split_files/loras/wan2.2_t2v_lightx2v_4steps_lora_v1.1_high_noise.safetensors"
+
+# 6. TAESD Wan 2.1 preview decoder (~5MB) for fast previews during sampling
+RUN wget -q --show-progress -O /opt/comfyui/models/vae_approx/taew2_1.safetensors \
+    "https://huggingface.co/Kijai/WanVideo_comfy/resolve/main/taew2_1.safetensors"
+
+# Set proper ownership
+RUN chown -R comfyui:comfyui /opt/comfyui/models
+
+USER comfyui
+
+ENV PREVIEW_METHOD=taesd
+ENV EXTRA_ARGS="--disable-smart-memory"
