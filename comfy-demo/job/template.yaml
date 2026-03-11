@@ -1,0 +1,238 @@
+specificationVersion: 'jobtemplate-2023-09'
+name: ComfyUI-Wan22-S2V-Batch
+parameterDefinitions:
+- name: Message
+  type: STRING
+  default: Starting ComfyUI Wan 2.2 S2V batch render
+- name: ECR_REGISTRY
+  type: STRING
+  default: 257639634185.dkr.ecr.us-west-2.amazonaws.com
+- name: COMFYUI_REPOSITORY
+  type: STRING
+  default: comfyui-wan22-s2v
+- name: COMFYUI_TAG
+  type: STRING
+  default: latest
+- name: AWS_REGION
+  type: STRING
+  default: us-west-2
+- name: WorkflowFile
+  type: PATH
+  objectType: FILE
+  dataFlow: IN
+  userInterface:
+    control: CHOOSE_INPUT_FILE
+    label: ComfyUI API Workflow JSON
+    groupLabel: Workflow
+    fileFilters:
+    - label: JSON Files
+      patterns: ["*.json"]
+  default: "./comfy-dag-api.json"
+  description: ComfyUI API-format workflow JSON to execute.
+- name: InputImage
+  type: PATH
+  objectType: FILE
+  dataFlow: IN
+  userInterface:
+    control: CHOOSE_INPUT_FILE
+    label: Reference Image
+    groupLabel: Inputs
+    fileFilters:
+    - label: Image Files
+      patterns: ["*.jpg", "*.jpeg", "*.png"]
+  default: "./image.jpg"
+  description: Reference image for the S2V workflow.
+- name: InputAudio
+  type: PATH
+  objectType: FILE
+  dataFlow: IN
+  userInterface:
+    control: CHOOSE_INPUT_FILE
+    label: Audio File
+    groupLabel: Inputs
+    fileFilters:
+    - label: Audio Files
+      patterns: ["*.mp3", "*.wav"]
+  default: "./mary-had-a-little-lamb.mp3"
+  description: Audio file for the S2V workflow.
+steps:
+- name: RunComfyWorkflow
+  script:
+    actions:
+      onRun:
+        command: bash
+        args: ['{{Task.File.Run}}']
+    embeddedFiles:
+    - name: Run
+      type: TEXT
+      data: |
+        #!/bin/bash
+        set -e
+
+        echo '{{Param.Message}}'
+        echo "=============================================="
+        echo "ComfyUI Wan 2.2 S2V Batch Render"
+        echo "=============================================="
+        echo "User: $(whoami)"
+        echo "Dir:  $(pwd)"
+        echo "Host: $(hostname)"
+        echo ""
+
+        # --- Cleanup orphaned containers ---
+        docker stop comfyui-batch 2>/dev/null || true
+        docker rm comfyui-batch 2>/dev/null || true
+        docker container prune -f
+
+        # --- ECR login & pull ---
+        echo "Logging in to ECR..."
+        aws ecr get-login-password --region {{Param.AWS_REGION}} \
+          | docker login --username AWS --password-stdin {{Param.ECR_REGISTRY}}
+
+        echo "Pulling image..."
+        docker pull {{Param.ECR_REGISTRY}}/{{Param.COMFYUI_REPOSITORY}}:{{Param.COMFYUI_TAG}}
+
+        # --- Prepare working dirs ---
+        WORK_DIR="$(pwd)/comfyui-work"
+        mkdir -p "$WORK_DIR/input" "$WORK_DIR/output"
+
+        # Copy job attachments into the input staging area
+        cp "{{Param.WorkflowFile}}" "$WORK_DIR/workflow.json"
+        cp "{{Param.InputImage}}"   "$WORK_DIR/input/"
+        cp "{{Param.InputAudio}}"   "$WORK_DIR/input/"
+
+        # Resolve the actual filenames that were uploaded
+        IMAGE_BASENAME=$(basename "{{Param.InputImage}}")
+        AUDIO_BASENAME=$(basename "{{Param.InputAudio}}")
+
+        # Patch the workflow JSON so LoadImage / LoadAudio nodes reference
+        # the actual filenames we copied into /opt/comfyui/input
+        echo "Patching workflow with input filenames..."
+        python3 -c "
+        import json, sys
+        wf = json.load(open('$WORK_DIR/workflow.json'))
+        for node in wf.values():
+            ct = node.get('class_type','')
+            if ct == 'LoadImage':
+                node['inputs']['image'] = '$IMAGE_BASENAME'
+            elif ct == 'LoadAudio':
+                node['inputs']['audio'] = '$AUDIO_BASENAME'
+                node['inputs'].pop('audioUI', None)
+        json.dump(wf, open('$WORK_DIR/workflow.json','w'), indent=2)
+        print('Workflow patched OK')
+        "
+
+        # --- Start ComfyUI container ---
+        echo "Starting ComfyUI container..."
+        CONTAINER_ID=$(docker run -d \
+          --runtime=nvidia \
+          --gpus all \
+          -e NVIDIA_VISIBLE_DEVICES=all \
+          -e NVIDIA_DRIVER_CAPABILITIES=compute,utility \
+          --network host \
+          -v "$WORK_DIR/input:/opt/comfyui/input" \
+          -v "$WORK_DIR/output:/opt/comfyui/output" \
+          --name comfyui-batch \
+          {{Param.ECR_REGISTRY}}/{{Param.COMFYUI_REPOSITORY}}:{{Param.COMFYUI_TAG}})
+
+        echo "Container started: $CONTAINER_ID"
+
+        # --- Wait for ComfyUI to be ready ---
+        echo "Waiting for ComfyUI on port 8188..."
+        for i in $(seq 1 180); do
+          if curl -s --max-time 2 http://localhost:8188/ > /dev/null 2>&1; then
+            echo "ComfyUI is ready!"
+            break
+          fi
+          if [ $((i % 15)) -eq 0 ]; then
+            echo "Still waiting... ($i/180)"
+            docker logs comfyui-batch 2>&1 | tail -10
+          fi
+          sleep 2
+        done
+
+        if ! curl -s --max-time 2 http://localhost:8188/ > /dev/null 2>&1; then
+          echo "ERROR: ComfyUI failed to start within 360s"
+          docker logs comfyui-batch
+          docker stop comfyui-batch || true
+          docker rm comfyui-batch || true
+          exit 1
+        fi
+
+        # --- Submit the workflow via API ---
+        echo "Submitting workflow to ComfyUI API..."
+        PROMPT_PAYLOAD=$(python3 -c "
+        import json
+        wf = json.load(open('$WORK_DIR/workflow.json'))
+        print(json.dumps({'prompt': wf}))
+        ")
+
+        RESPONSE=$(curl -s -X POST http://localhost:8188/api/prompt \
+          -H "Content-Type: application/json" \
+          -d "$PROMPT_PAYLOAD")
+
+        PROMPT_ID=$(echo "$RESPONSE" | python3 -c "import sys,json; print(json.load(sys.stdin).get('prompt_id',''))" 2>/dev/null)
+
+        if [ -z "$PROMPT_ID" ]; then
+          echo "ERROR: Failed to queue workflow"
+          echo "Response: $RESPONSE"
+          docker stop comfyui-batch || true
+          docker rm comfyui-batch || true
+          exit 1
+        fi
+
+        echo "Workflow queued — prompt_id: $PROMPT_ID"
+
+        # --- Poll for completion ---
+        echo "Waiting for render to complete..."
+        while true; do
+          HISTORY=$(curl -s http://localhost:8188/api/history/$PROMPT_ID)
+          STATUS=$(echo "$HISTORY" | python3 -c "
+        import sys, json
+        h = json.load(sys.stdin)
+        if '$PROMPT_ID' in h:
+            s = h['$PROMPT_ID'].get('status', {})
+            if s.get('completed', False):
+                print('done')
+            elif s.get('status_str') == 'error':
+                print('error')
+            else:
+                print('running')
+        else:
+            print('pending')
+        " 2>/dev/null)
+
+          if [ "$STATUS" = "done" ]; then
+            echo "Render complete!"
+            break
+          elif [ "$STATUS" = "error" ]; then
+            echo "ERROR: Workflow execution failed"
+            echo "$HISTORY" | python3 -m json.tool 2>/dev/null || echo "$HISTORY"
+            docker stop comfyui-batch || true
+            docker rm comfyui-batch || true
+            exit 1
+          fi
+
+          # Show GPU stats periodically
+          nvidia-smi --query-gpu=utilization.gpu,memory.used,memory.total --format=csv,noheader,nounits 2>/dev/null \
+            | awk -F', ' '{printf "  GPU: %s%% | VRAM: %sMiB/%sMiB\n", $1, $2, $3}' || true
+          sleep 10
+        done
+
+        # --- Collect output ---
+        echo "Collecting output files..."
+        OUTPUT_COUNT=$(find "$WORK_DIR/output" -type f | wc -l)
+        echo "Found $OUTPUT_COUNT output file(s)"
+        ls -lhR "$WORK_DIR/output/"
+
+        # Copy output back to the job session directory so Deadline can pick it up
+        cp -r "$WORK_DIR/output/"* "$(pwd)/" 2>/dev/null || true
+
+        # --- Cleanup ---
+        echo "Stopping container..."
+        docker stop comfyui-batch || true
+        docker rm comfyui-batch || true
+        docker container prune -f
+
+        echo "=============================================="
+        echo "Job complete. Output files copied to $(pwd)"
+        echo "=============================================="
