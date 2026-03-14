@@ -1,0 +1,241 @@
+{
+  "10": {
+    "class_type": "UNETLoader",
+    "_meta": { "title": "Load Z-Image Diffusion Model" },
+    "inputs": {
+      "unet_name": "z_image_bf16.safetensors",
+      "weight_dtype": "default"
+    }
+  },
+  "11": {
+    "class_type": "CLIPLoader",
+    "_meta": { "title": "Load Z-Image Text Encoder" },
+    "inputs": {
+      "clip_name": "qwen_3_4b.safetensors",
+      "type": "ace"
+    }
+  },
+  "12": {
+    "class_type": "VAELoader",
+    "_meta": { "title": "Load Z-Image VAE" },
+    "inputs": {
+      "vae_name": "ae.safetensors"
+    }
+  },
+  "13": {
+    "class_type": "CLIPTextEncode",
+    "_meta": { "title": "Z-Image Positive Prompt" },
+    "inputs": {
+      "text": "A close-up of a cyberpunk cat wearing a neon visor, highly detailed fur, 8k realism, cinematic lighting, rain-soaked street background",
+      "clip": ["11", 0]
+    }
+  },
+  "14": {
+    "class_type": "CLIPTextEncode",
+    "_meta": { "title": "Z-Image Negative Prompt" },
+    "inputs": {
+      "text": "blurry, low quality, deformed, ugly",
+      "clip": ["11", 0]
+    }
+  },
+  "15": {
+    "class_type": "EmptyLatentImage",
+    "_meta": { "title": "Empty Latent 1024x1024" },
+    "inputs": {
+      "width": 1024,
+      "height": 1024,
+      "batch_size": 1
+    }
+  },
+  "16": {
+    "class_type": "KSampler",
+    "_meta": { "title": "Z-Image KSampler" },
+    "inputs": {
+      "model": ["10", 0],
+      "positive": ["13", 0],
+      "negative": ["14", 0],
+      "latent_image": ["15", 0],
+      "seed": 42,
+      "steps": 30,
+      "cfg": 4.0,
+      "sampler_name": "res_multistep",
+      "scheduler": "normal",
+      "denoise": 1.0
+    }
+  },
+  "17": {
+    "class_type": "VAEDecode",
+    "_meta": { "title": "Z-Image VAE Decode" },
+    "inputs": {
+      "samples": ["16", 0],
+      "vae": ["12", 0]
+    }
+  },
+  "18": {
+    "class_type": "SaveImage",
+    "_meta": { "title": "Save Z-Image Output" },
+    "inputs": {
+      "images": ["17", 0],
+      "filename_prefix": "zimage/cyberpunk-cat"
+    }
+  },
+
+  "20": {
+    "class_type": "UNETLoader",
+    "_meta": { "title": "Load Qwen Edit Diffusion Model" },
+    "inputs": {
+      "unet_name": "qwen_image_edit_2511_bf16.safetensors",
+      "weight_dtype": "default"
+    }
+  },
+  "21": {
+    "class_type": "CLIPLoader",
+    "_meta": { "title": "Load Qwen Text Encoder" },
+    "inputs": {
+      "clip_name": "qwen_2.5_vl_7b_fp8_scaled.safetensors",
+      "type": "qwen_image"
+    }
+  },
+  "22": {
+    "class_type": "VAELoader",
+    "_meta": { "title": "Load Qwen VAE" },
+    "inputs": {
+      "vae_name": "qwen_image_vae.safetensors"
+    }
+  },
+  "23": {
+    "class_type": "TextEncodeQwenImageEditPlus",
+    "_meta": { "title": "Qwen Edit Prompt" },
+    "inputs": {
+      "clip": ["21", 0],
+      "prompt": "Make the cat's visor glow purple and add falling rain in the background",
+      "vae": ["22", 0],
+      "image1": ["17", 0]
+    }
+  },
+  "24": {
+    "class_type": "EmptyLatentImage",
+    "_meta": { "title": "Qwen Edit Latent" },
+    "inputs": {
+      "width": 1024,
+      "height": 1024,
+      "batch_size": 1
+    }
+  },
+  "25": {
+    "class_type": "KSampler",
+    "_meta": { "title": "Qwen Edit KSampler" },
+    "inputs": {
+      "model": ["20", 0],
+      "positive": ["23", 0],
+      "negative": ["26", 0],
+      "latent_image": ["24", 0],
+      "seed": 123,
+      "steps": 28,
+      "cfg": 5.0,
+      "sampler_name": "euler",
+      "scheduler": "normal",
+      "denoise": 1.0
+    }
+  },
+  "26": {
+    "class_type": "CLIPTextEncode",
+    "_meta": { "title": "Qwen Edit Negative" },
+    "inputs": {
+      "text": "",
+      "clip": ["21", 0]
+    }
+  },
+  "27": {
+    "class_type": "VAEDecode",
+    "_meta": { "title": "Qwen Edit VAE Decode" },
+    "inputs": {
+      "samples": ["25", 0],
+      "vae": ["22", 0]
+    }
+  },
+  "28": {
+    "class_type": "SaveImage",
+    "_meta": { "title": "Save Edited Image" },
+    "inputs": {
+      "images": ["27", 0],
+      "filename_prefix": "qwen-edit/cyberpunk-cat-edited"
+    }
+  },
+
+  "30": {
+    "class_type": "CheckpointLoaderSimple",
+    "_meta": { "title": "Load LTX-2.3 Checkpoint" },
+    "inputs": {
+      "ckpt_name": "ltx-2.3-22b-dev-fp8.safetensors"
+    }
+  },
+  "31": {
+    "class_type": "CLIPTextEncode",
+    "_meta": { "title": "LTX Positive Prompt" },
+    "inputs": {
+      "text": "A cyberpunk cat with a glowing purple visor, rain falling, cinematic slow motion, neon reflections",
+      "clip": ["30", 1]
+    }
+  },
+  "32": {
+    "class_type": "CLIPTextEncode",
+    "_meta": { "title": "LTX Negative Prompt" },
+    "inputs": {
+      "text": "static, blurry, low quality",
+      "clip": ["30", 1]
+    }
+  },
+  "33": {
+    "class_type": "LTXVImgToVideo",
+    "_meta": { "title": "LTX Image to Video Conditioning" },
+    "inputs": {
+      "positive": ["31", 0],
+      "negative": ["32", 0],
+      "vae": ["30", 2],
+      "image": ["27", 0],
+      "width": 768,
+      "height": 512,
+      "length": 97,
+      "batch_size": 1,
+      "strength": 0.9
+    }
+  },
+  "34": {
+    "class_type": "KSampler",
+    "_meta": { "title": "LTX Video KSampler" },
+    "inputs": {
+      "model": ["30", 0],
+      "positive": ["33", 0],
+      "negative": ["33", 1],
+      "latent_image": ["33", 2],
+      "seed": 456,
+      "steps": 25,
+      "cfg": 3.0,
+      "sampler_name": "euler",
+      "scheduler": "normal",
+      "denoise": 1.0
+    }
+  },
+  "35": {
+    "class_type": "VAEDecode",
+    "_meta": { "title": "LTX Video VAE Decode" },
+    "inputs": {
+      "samples": ["34", 0],
+      "vae": ["30", 2]
+    }
+  },
+  "36": {
+    "class_type": "VHS_VideoCombine",
+    "_meta": { "title": "Save Video" },
+    "inputs": {
+      "images": ["35", 0],
+      "frame_rate": 24.0,
+      "loop_count": 0,
+      "filename_prefix": "ltx-video/cyberpunk-cat",
+      "format": "video/h264-mp4",
+      "pingpong": false,
+      "save_output": true
+    }
+  }
+}
