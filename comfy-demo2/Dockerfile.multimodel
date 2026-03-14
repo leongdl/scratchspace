@@ -1,0 +1,46 @@
+# syntax=docker/dockerfile:1
+# ComfyUI Multi-Model Image: LTX-2.3 + Qwen-Image-Edit-2511 + Z-Image
+# Layers on comfyui-rocky:latest (Rocky 9 + CUDA 12.6 + torch 2.7 + ComfyUI)
+#
+# Build:
+#   docker build -f Dockerfile.multimodel \
+#     --secret id=hf_token,src=.env.secret \
+#     -t comfyui-multimodel:latest .
+#
+# .env.secret should contain just the raw token value (no key=value format).
+# The secret is mounted at build time only and NEVER stored in image layers.
+
+FROM comfyui-rocky:latest
+
+USER root
+
+# Install huggingface-hub for model downloads
+RUN python3.12 -m pip install --upgrade pip huggingface-hub
+
+# Create model directories
+RUN mkdir -p \
+    /opt/comfyui/models/checkpoints \
+    /opt/comfyui/models/diffusion_models \
+    /opt/comfyui/models/text_encoders \
+    /opt/comfyui/models/vae \
+    /opt/comfyui/models/loras \
+    /opt/comfyui/models/latent_upscale_models
+
+# Copy and run the download script with the secret token mounted
+COPY download_models.py /tmp/download_models.py
+RUN --mount=type=secret,id=hf_token \
+    python3.12 /tmp/download_models.py && \
+    rm /tmp/download_models.py
+
+# Fix ownership
+RUN chown -R comfyui:comfyui /opt/comfyui/models
+
+USER comfyui
+
+# No custom nodes needed — all three models have native ComfyUI support:
+# - LTX-2.3: Built-in LTXVideo nodes (CheckpointLoaderSimple + LTX workflow)
+# - Qwen-Image-Edit-2511: Native Qwen editing nodes (TextEncodeQwenImageEdit)
+# - Z-Image: Native loading (UNETLoader + CLIPLoader + VAELoader)
+
+EXPOSE 8188
+CMD ["/start-comfyui.sh"]

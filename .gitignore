@@ -11,3 +11,5 @@ creds.sh
 *.key
 *_tunnel_key
 *_tunnel_key.pub
+.env.secret
+*.secret
