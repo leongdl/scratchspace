@@ -1,11 +1,15 @@
 # syntax=docker/dockerfile:1
-# ComfyUI Anime2 — Anima preview2 (circlestone-labs/Anima)
-# Lightweight image for anime2.json DAG (txt2img with Anima 2B ACE model)
+# ComfyUI Anime — Anima preview2 + waiNSFWIllustrious v11.0
+# Supports both anime2.json (Anima txt2img) and anime.json (SDXL unsampler)
 #
 # Build:
-#   docker build -f Dockerfile.anime2 -t comfyui-anime2:latest .
+#   docker build -f Dockerfile.anime2 \
+#     --secret id=civitai_token,src=.env.secret \
+#     -t comfyui-anime2:latest .
 #
-# Requires: comfyui-rocky:latest base image
+# .env.secret should contain just the raw CivitAI API token value.
+# The secret is mounted at build time only and NEVER stored in image layers.
+# If no token is provided, CivitAI models (waiNSFWIllustrious) are skipped.
 
 FROM comfyui-rocky:latest
 
@@ -15,24 +19,47 @@ USER root
 RUN mkdir -p \
     /opt/comfyui/models/diffusion_models \
     /opt/comfyui/models/text_encoders \
-    /opt/comfyui/models/vae
+    /opt/comfyui/models/vae \
+    /opt/comfyui/models/checkpoints \
+    /opt/comfyui/models/controlnet
 
-# --- Anima preview2 model (circlestone-labs/Anima) ---
+# Download models via Python script
+COPY download_models.py /tmp/download_models.py
+RUN --mount=type=secret,id=civitai_token \
+    python3.12 /tmp/download_models.py && \
+    rm /tmp/download_models.py
 
-# 1. Diffusion model (~3.9GB)
-RUN wget -q --show-progress -O /opt/comfyui/models/diffusion_models/anima-preview2.safetensors \
-    "https://huggingface.co/circlestone-labs/Anima/resolve/main/split_files/diffusion_models/anima-preview2.safetensors"
+# =============================================================================
+# Custom nodes (for anime.json unsampler workflow)
+# =============================================================================
 
-# 2. Text encoder — Qwen 3 0.6B base (~1.2GB)
-RUN wget -q --show-progress -O /opt/comfyui/models/text_encoders/qwen_3_06b_base.safetensors \
-    "https://huggingface.co/circlestone-labs/Anima/resolve/main/split_files/text_encoders/qwen_3_06b_base.safetensors"
+# comfyui_controlnet_aux — CannyEdge, DepthAnythingV2, AnimeLineArt preprocessors
+# Install without upgrading torch (--no-deps for torch/torchvision)
+RUN git clone https://github.com/Fannovel16/comfyui_controlnet_aux.git \
+    /opt/comfyui/custom_nodes/comfyui_controlnet_aux && \
+    python3.12 -m pip install --no-deps -r /opt/comfyui/custom_nodes/comfyui_controlnet_aux/requirements.txt 2>/dev/null; \
+    python3.12 -m pip install scikit-image scipy einops timm 2>/dev/null; \
+    true
 
-# 3. VAE — qwen_image_vae (~243MB)
-RUN wget -q --show-progress -O /opt/comfyui/models/vae/qwen_image_vae.safetensors \
-    "https://huggingface.co/circlestone-labs/Anima/resolve/main/split_files/vae/qwen_image_vae.safetensors"
+# ComfyUI_Noise — BNK_Unsampler node
+RUN git clone https://github.com/BlenderNeko/ComfyUI_Noise.git \
+    /opt/comfyui/custom_nodes/ComfyUI_Noise
+
+# ComfyUI_JPS-Nodes — Get Image Size (JPS), Largest Int (JPS)
+RUN git clone https://github.com/JPS-GER/ComfyUI_JPS-Nodes.git \
+    /opt/comfyui/custom_nodes/ComfyUI_JPS-Nodes
+
+# images-grid-comfy-plugin — ImagesGridByRows
+RUN git clone https://github.com/LEv145/images-grid-comfy-plugin.git \
+    /opt/comfyui/custom_nodes/images-grid-comfy-plugin && \
+    (cd /opt/comfyui/custom_nodes/images-grid-comfy-plugin && \
+     python3.12 -m pip install -r requirements.txt 2>/dev/null || true)
+
+# ComfyUI-Custom-Scripts — DisplayAny, ImageCombine
+RUN git clone https://github.com/pythongosssss/ComfyUI-Custom-Scripts.git \
+    /opt/comfyui/custom_nodes/ComfyUI-Custom-Scripts
 
 # Patch torch.AcceleratorError for torch < 2.8
-# ComfyUI 0.16.4+ references torch.AcceleratorError which only exists in torch 2.8+
 COPY <<'PATCH' /tmp/patch_accel.py
 path = '/opt/comfyui/comfy/model_management.py'
 with open(path) as f:
@@ -49,7 +76,7 @@ PATCH
 RUN python3.12 /tmp/patch_accel.py && rm /tmp/patch_accel.py
 
 # Fix ownership
-RUN chown -R comfyui:comfyui /opt/comfyui/models
+RUN chown -R comfyui:comfyui /opt/comfyui/models /opt/comfyui/custom_nodes
 
 USER comfyui
 
