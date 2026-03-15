@@ -1,0 +1,57 @@
+# syntax=docker/dockerfile:1
+# ComfyUI Anime2 — Anima preview2 (circlestone-labs/Anima)
+# Lightweight image for anime2.json DAG (txt2img with Anima 2B ACE model)
+#
+# Build:
+#   docker build -f Dockerfile.anime2 -t comfyui-anime2:latest .
+#
+# Requires: comfyui-rocky:latest base image
+
+FROM comfyui-rocky:latest
+
+USER root
+
+# Create model directories
+RUN mkdir -p \
+    /opt/comfyui/models/diffusion_models \
+    /opt/comfyui/models/text_encoders \
+    /opt/comfyui/models/vae
+
+# --- Anima preview2 model (circlestone-labs/Anima) ---
+
+# 1. Diffusion model (~3.9GB)
+RUN wget -q --show-progress -O /opt/comfyui/models/diffusion_models/anima-preview2.safetensors \
+    "https://huggingface.co/circlestone-labs/Anima/resolve/main/split_files/diffusion_models/anima-preview2.safetensors"
+
+# 2. Text encoder — Qwen 3 0.6B base (~1.2GB)
+RUN wget -q --show-progress -O /opt/comfyui/models/text_encoders/qwen_3_06b_base.safetensors \
+    "https://huggingface.co/circlestone-labs/Anima/resolve/main/split_files/text_encoders/qwen_3_06b_base.safetensors"
+
+# 3. VAE — qwen_image_vae (~243MB)
+RUN wget -q --show-progress -O /opt/comfyui/models/vae/qwen_image_vae.safetensors \
+    "https://huggingface.co/circlestone-labs/Anima/resolve/main/split_files/vae/qwen_image_vae.safetensors"
+
+# Patch torch.AcceleratorError for torch < 2.8
+# ComfyUI 0.16.4+ references torch.AcceleratorError which only exists in torch 2.8+
+COPY <<'PATCH' /tmp/patch_accel.py
+path = '/opt/comfyui/comfy/model_management.py'
+with open(path) as f:
+    code = f.read()
+old1 = "if isinstance(e, torch.AcceleratorError) and getattr(e, 'error_code', None) == 2:"
+new1 = "if hasattr(torch, 'AcceleratorError') and isinstance(e, torch.AcceleratorError) and getattr(e, 'error_code', None) == 2:"
+old2 = "except torch.AcceleratorError:"
+new2 = "except (torch.AcceleratorError if hasattr(torch, 'AcceleratorError') else RuntimeError):"
+code = code.replace(old1, new1).replace(old2, new2)
+with open(path, 'w') as f:
+    f.write(code)
+print('Patched torch.AcceleratorError')
+PATCH
+RUN python3.12 /tmp/patch_accel.py && rm /tmp/patch_accel.py
+
+# Fix ownership
+RUN chown -R comfyui:comfyui /opt/comfyui/models
+
+USER comfyui
+
+EXPOSE 8188
+CMD ["/start-comfyui.sh"]
