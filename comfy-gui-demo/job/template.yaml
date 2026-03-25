@@ -23,13 +23,15 @@ parameterDefinitions:
   description: How many minutes to keep the ComfyUI session alive.
 - name: ECR_REGISTRY
   type: STRING
-  default: 224071664257.dkr.ecr.us-west-2.amazonaws.com
+  description: ECR registry URL (e.g. 123456789.dkr.ecr.us-west-2.amazonaws.com)
 - name: COMFYUI_REPOSITORY
   type: STRING
-  default: sqex2
+  default: comfyui
+  description: ECR repository name
 - name: COMFYUI_TAG
   type: STRING
-  default: wans2v
+  default: latest
+  description: Docker image tag
 - name: COMFYUI_PORT
   type: INT
   default: 8188

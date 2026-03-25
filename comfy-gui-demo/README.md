@@ -30,29 +30,50 @@ When you submit the job, the submit script first creates a one-time SSM hybrid a
 
 ## Related Demos
 
-| Demo | What it does | Container |
-|------|-------------|-----------|
-| [comfy-gui-demo](.) (this) | Interactive ComfyUI GUI session via SSM | `sqex2:wans2v` |
-| [comfy-demo](../comfy-demo/) | Headless Wan 2.2 S2V batch render | `sqex2:wans2v` |
-| [comfy-demo2](../comfy-demo2/) | Headless Wan 2.2 S2V batch render (variant) | `sqex2:wans2v` |
-| [comfy-demo3](../comfy-demo3/) | Headless Wan 2.2 S2V batch render (variant) | `sqex2:wans2v` |
-| [ssh_ssm_managed_node](../ssh_ssm_managed_node/) | SSH shell access to worker via SSM (no container) | N/A |
+| Demo | What it does |
+|------|-------------|
+| [comfy-gui-demo](.) (this) | Interactive ComfyUI GUI session via SSM |
+| [comfy-demo](../comfy-demo/) | Headless Wan 2.2 S2V batch render |
+| [comfy-demo2](../comfy-demo2/) | Headless Wan 2.2 S2V batch render (variant) |
+| [comfy-demo3](../comfy-demo3/) | Headless Wan 2.2 S2V batch render (variant) |
+| [ssh_ssm_managed_node](../ssh_ssm_managed_node/) | SSH shell access to worker via SSM (no container) |
 
-All demos share the same ComfyUI container image (`224071664257.dkr.ecr.us-west-2.amazonaws.com/sqex2:wans2v`, ~52GB). The container has Wan 2.2 S2V 14B fp8 + wav2vec2 + LightX2V LoRA baked in. The workflow is: design in the GUI (this demo) → export API JSON → submit headless (comfy-demo*).
+All demos share the same ComfyUI container image — build it from the Dockerfiles in [comfy-demo/](../comfy-demo/) (see Container Image below). The container has Wan 2.2 S2V 14B fp8 + wav2vec2 + LightX2V LoRA baked in. The workflow is: design in the GUI (this demo) → export API JSON → submit headless (comfy-demo*).
 
 ## Container Image
 
-The image is already built and pushed to ECR:
+This demo runs any ComfyUI container image from ECR. The companion demos under [comfy-demo/](../comfy-demo/) include Dockerfiles you can use to build one. For example, the Wan 2.2 S2V image used by comfy-demo/comfy-demo2/comfy-demo3:
 
-```
-224071664257.dkr.ecr.us-west-2.amazonaws.com/sqex2:wans2v
-  Pushed:  2026-03-10
-  Size:    ~52GB (compressed)
-  Base:    Rocky Linux 9 + CUDA 12.6 + PyTorch 2.7.0 + ComfyUI
-  Models:  Wan 2.2 S2V 14B fp8, UMT5-XXL fp8, wav2vec2, LightX2V LoRA, Wan 2.1 VAE
+```bash
+cd comfy-demo
+
+# 1. Build the base image (Rocky 9 + CUDA 12.6 + PyTorch 2.7 + ComfyUI)
+docker build -t comfyui-rocky:latest -f Dockerfile .
+
+# 2. Build the model layer (bakes ~24GB of Wan 2.2 S2V models into the image)
+docker build -t comfyui-wan22-s2v:latest -f Dockerfile.wan22-s2v .
 ```
 
-No need to rebuild — the submit script and job template default to this image.
+Then tag and push to your ECR:
+
+```bash
+ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
+REGION=us-west-2
+ECR_REGISTRY="${ACCOUNT_ID}.dkr.ecr.${REGION}.amazonaws.com"
+REPO_NAME=comfyui
+
+# Create the repo (once)
+aws ecr create-repository --repository-name $REPO_NAME --region $REGION
+
+# Login, tag, push
+aws ecr get-login-password --region $REGION | \
+  docker login --username AWS --password-stdin $ECR_REGISTRY
+
+docker tag comfyui-wan22-s2v:latest ${ECR_REGISTRY}/${REPO_NAME}:latest
+docker push ${ECR_REGISTRY}/${REPO_NAME}:latest
+```
+
+The submit script auto-detects your ECR registry from `aws sts get-caller-identity` and defaults to `comfyui:latest`. Override with `ECR_REGISTRY`, `DOCKER_REPO`, and `DOCKER_TAG` env vars if needed.
 
 ## Setup
 
@@ -133,6 +154,10 @@ Cost: ~$0.00695/hr per managed instance. Negligible for short-lived sessions.
 ```bash
 cd comfy-gui-demo
 
+# Required: set your farm and queue IDs
+export FARM_ID=farm-xxx
+export QUEUE_ID=queue-xxx
+
 # Default: 120 min session, SSMServiceRole, us-west-2
 ./submit.sh
 
@@ -144,7 +169,7 @@ cd comfy-gui-demo
 
 # Override container image
 ECR_REGISTRY=123456789.dkr.ecr.us-west-2.amazonaws.com \
-DOCKER_REPO=my-comfyui DOCKER_TAG=latest \
+DOCKER_REPO=my-comfyui DOCKER_TAG=v2 \
 ./submit.sh
 ```
 
@@ -195,11 +220,11 @@ comfy-gui-demo/
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `FARM_ID` | *(hardcoded)* | Deadline Cloud farm ID |
-| `QUEUE_ID` | *(hardcoded)* | Deadline Cloud queue ID |
-| `ECR_REGISTRY` | `224071664257.dkr.ecr.us-west-2.amazonaws.com` | ECR registry |
-| `DOCKER_REPO` | `sqex2` | ECR repository name |
-| `DOCKER_TAG` | `wans2v` | Docker image tag |
+| `FARM_ID` | *(required)* | Deadline Cloud farm ID |
+| `QUEUE_ID` | *(required)* | Deadline Cloud queue ID |
+| `ECR_REGISTRY` | auto-detected from `aws sts` | ECR registry URL |
+| `DOCKER_REPO` | `comfyui` | ECR repository name |
+| `DOCKER_TAG` | `latest` | Docker image tag |
 | `COMFYUI_PORT` | `8188` | ComfyUI port |
 
 ## Troubleshooting

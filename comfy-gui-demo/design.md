@@ -38,9 +38,9 @@ A Deadline Cloud job bundle that combines the SSM managed node pattern with the 
 | `ActivationId` | STRING | *(required)* | SSM hybrid activation ID |
 | `AWS_REGION` | STRING | us-west-2 | Region for SSM + ECR |
 | `SessionMinutes` | INT | 120 | How long to keep the session alive |
-| `ECR_REGISTRY` | STRING | *(account default)* | ECR registry URL |
-| `COMFYUI_REPOSITORY` | STRING | sqex2 | ECR repository name |
-| `COMFYUI_TAG` | STRING | wans2v | Docker image tag |
+| `ECR_REGISTRY` | STRING | *(auto-detected)* | ECR registry URL |
+| `COMFYUI_REPOSITORY` | STRING | comfyui | ECR repository name |
+| `COMFYUI_TAG` | STRING | latest | Docker image tag |
 | `COMFYUI_PORT` | INT | 8188 | Port ComfyUI listens on |
 
 ## Job Script Flow
