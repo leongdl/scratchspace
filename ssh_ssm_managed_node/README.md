@@ -54,11 +54,13 @@ Cost: ~$0.00695/hr per on-premises managed instance. Negligible for short-lived 
 
 ### Submit a Job
 
+The submit script creates an SSM hybrid activation and submits the Deadline Cloud job in one step:
+
 ```bash
 # Default: 60 min session, SSMServiceRole, us-west-2
 ./submit.sh
 
-# Custom session duration
+# Custom session duration (120 minutes)
 ./submit.sh 120
 
 # Custom IAM role and region
@@ -68,12 +70,72 @@ Cost: ~$0.00695/hr per on-premises managed instance. Negligible for short-lived 
 ./submit.sh 60 SSMServiceRole us-west-2 --show
 ```
 
+Or submit manually with the Deadline CLI:
+
+```bash
+# Create activation first
+ACTIVATION=$(aws ssm create-activation \
+  --iam-role SSMServiceRole \
+  --registration-limit 1 \
+  --region us-west-2 \
+  --output json)
+
+CODE=$(echo "$ACTIVATION" | jq -r '.ActivationCode')
+ID=$(echo "$ACTIVATION" | jq -r '.ActivationId')
+
+# Submit the job bundle
+deadline bundle submit job/ \
+  --farm-id farm-XXXXXXXX \
+  --queue-id queue-XXXXXXXX \
+  --parameter "ActivationCode=$CODE" \
+  --parameter "ActivationId=$ID" \
+  --parameter "SessionMinutes=120"
+```
+
 ### Connect to the Worker
 
-Once the job is running, check the Deadline Cloud job log for the managed node ID, then:
+Once the job is running, find the managed node ID in the Deadline Cloud job log (it prints `SSM Managed Node ID: mi-XXXXXXXXX`).
+
+#### Interactive shell
 
 ```bash
 aws ssm start-session --target mi-XXXXXXXXX --region us-west-2
+```
+
+#### Port forwarding
+
+Forward a remote port on the worker to your local machine. Useful for accessing web UIs, Jupyter notebooks, or other services running on the worker:
+
+```bash
+# Forward worker port 8888 to localhost:8888
+aws ssm start-session \
+  --target mi-XXXXXXXXX \
+  --region us-west-2 \
+  --document-name AWS-StartPortForwardingSession \
+  --parameters '{"portNumber":["8888"],"localPortNumber":["8888"]}'
+```
+
+#### SSH over Session Manager
+
+You can also use SSH through the SSM tunnel. Add this to your `~/.ssh/config`:
+
+```
+Host mi-*
+  ProxyCommand aws ssm start-session --target %h --document-name AWS-StartSSHSession --parameters "portNumber=%p" --region us-west-2
+  User ssm-user
+  StrictHostKeyChecking no
+```
+
+Then connect directly:
+
+```bash
+ssh mi-XXXXXXXXX
+```
+
+Or use SSH port forwarding for multiple ports at once:
+
+```bash
+ssh -L 8888:localhost:8888 -L 6006:localhost:6006 mi-XXXXXXXXX
 ```
 
 ## File Structure
