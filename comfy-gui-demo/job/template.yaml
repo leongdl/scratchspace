@@ -80,8 +80,11 @@ steps:
         cat > /tmp/get_digest.py << 'PYEOF'
         import sys, json
         imgs = json.load(sys.stdin)
-        digests = imgs[0].get('RepoDigests', [''])
-        print(digests[0] if digests else '')
+        if not imgs:
+            print('')
+        else:
+            digests = imgs[0].get('RepoDigests', [''])
+            print(digests[0] if digests else '')
         PYEOF
 
         LOCAL_DIGEST=$(docker inspect \
