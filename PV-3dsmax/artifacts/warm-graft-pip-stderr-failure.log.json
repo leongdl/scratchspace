@@ -1,0 +1,162 @@
+[
+ {
+  "timestamp": 1785813414504,
+  "message": "{\"level\": \"WARNING\", \"message\": \"The content and formatting of unstructured logs may change at any time and without warning. We recommend structured logs for programmatic log queries.\"}",
+  "ingestionTime": 1785813415136
+ },
+ {
+  "timestamp": 1785813414504,
+  "message": "{\"level\": \"WARNING\", \"message\": \"The content and formatting of structured log records that do not have a 'type' field may change at any time and without warning and must not be relied upon for programmatic log queries.\"}",
+  "ingestionTime": 1785813415136
+ },
+ {
+  "timestamp": 1785813414504,
+  "message": "{\"level\": \"INFO\", \"type\": \"AgentInfo\", \"platform\": \"win32\", \"python\": {\"interpreter\": \"C:\\\\Program Files\\\\Python311\\\\pythonservice.exe\", \"version\": \"3.11.15 (main, Apr 28 2026, 19:27:51) [MSC v.1944 64 bit (AMD64)]\"}, \"agent\": {\"version\": \"0.30.2\", \"installedAt\": \"C:\\\\Program Files\\\\Python311\\\\Lib\\\\site-packages\", \"runningAs\": \"deadline-worker\"}, \"dependencies\": {\"openjd.model\": \"0.10.1\", \"openjd.sessions\": \"0.10.10\", \"deadline.job_attachments\": \"0.1.2\"}}",
+  "ingestionTime": 1785813415136
+ },
+ {
+  "timestamp": 1785813414504,
+  "message": "{\"level\": \"INFO\", \"ti\": \"\ud83d\udcdc\", \"type\": \"Worker\", \"subtype\": \"HostConfiguration\", \"message\": \"Running host configuration script.\", \"farm_id\": \"farm-fd8e9a84d9c04142848c6ea56c9d7568\", \"fleet_id\": \"fleet-25060df816a4493a88dc41840a25fbd6\", \"worker_id\": \"worker-92e2e1da123147179ececd2eae32a78d\", \"status\": \"Running\"}",
+  "ingestionTime": 1785813415136
+ },
+ {
+  "timestamp": 1785813414504,
+  "message": "{\"level\": \"INFO\", \"message\": \"Writing embedded files for Environment to disk.\"}",
+  "ingestionTime": 1785813415136
+ },
+ {
+  "timestamp": 1785813414504,
+  "message": "{\"level\": \"INFO\", \"message\": \"Mapping: Env.File.WorkerHostConfigurationScript -> C:\\\\ProgramData\\\\Amazon\\\\Deadline\\\\Cache\\\\host_configuration.ps1\"}",
+  "ingestionTime": 1785813415136
+ },
+ {
+  "timestamp": 1785813414504,
+  "message": "{\"level\": \"INFO\", \"message\": \"Wrote: WorkerHostConfigurationScript -> C:\\\\ProgramData\\\\Amazon\\\\Deadline\\\\Cache\\\\host_configuration.ps1\"}",
+  "ingestionTime": 1785813415136
+ },
+ {
+  "timestamp": 1785813414504,
+  "message": "{\"level\": \"INFO\", \"message\": \"\"}",
+  "ingestionTime": 1785813415136
+ },
+ {
+  "timestamp": 1785813414504,
+  "message": "{\"level\": \"INFO\", \"message\": \"============================================================================================\"}",
+  "ingestionTime": 1785813415136
+ },
+ {
+  "timestamp": 1785813414504,
+  "message": "{\"level\": \"INFO\", \"message\": \"--------- Running Host Configuration Script ---------\"}",
+  "ingestionTime": 1785813415136
+ },
+ {
+  "timestamp": 1785813414504,
+  "message": "{\"level\": \"INFO\", \"message\": \"============================================================================================\"}",
+  "ingestionTime": 1785813415136
+ },
+ {
+  "timestamp": 1785813418814,
+  "message": "{\"level\": \"INFO\", \"message\": \"Persistent volume: D:\"}",
+  "ingestionTime": 1785813418974
+ },
+ {
+  "timestamp": 1785813419118,
+  "message": "{\"level\": \"INFO\", \"message\": \"=== WARM boot: grafting cached install ===\"}",
+  "ingestionTime": 1785813419194
+ },
+ {
+  "timestamp": 1785813419218,
+  "message": "{\"level\": \"INFO\", \"message\": \"Junction: C:\\\\Program Files\\\\Autodesk -> D:\\\\Software\\\\Autodesk\"}",
+  "ingestionTime": 1785813419416
+ },
+ {
+  "timestamp": 1785813419329,
+  "message": "{\"level\": \"INFO\", \"message\": \"Junction: C:\\\\ProgramData\\\\Autodesk -> D:\\\\SoftwareData\\\\Autodesk\"}",
+  "ingestionTime": 1785813419416
+ },
+ {
+  "timestamp": 1785813419439,
+  "message": "{\"level\": \"INFO\", \"message\": \"Junction: C:\\\\Program Files\\\\Common Files\\\\Autodesk Shared -> D:\\\\Software\\\\AutodeskShared\"}",
+  "ingestionTime": 1785813419634
+ },
+ {
+  "timestamp": 1785813419549,
+  "message": "{\"level\": \"INFO\", \"message\": \"Junction: C:\\\\Program Files (x86)\\\\Common Files\\\\Autodesk Shared -> D:\\\\Software\\\\AutodeskSharedX86\"}",
+  "ingestionTime": 1785813419634
+ },
+ {
+  "timestamp": 1785813420078,
+  "message": "{\"level\": \"INFO\", \"message\": \"Imported autodesk-graft.reg\"}",
+  "ingestionTime": 1785813420252
+ },
+ {
+  "timestamp": 1785813420190,
+  "message": "{\"level\": \"INFO\", \"message\": \"Registered service: AdskLicensingService\"}",
+  "ingestionTime": 1785813420252
+ },
+ {
+  "timestamp": 1785813421536,
+  "message": "{\"level\": \"INFO\", \"message\": \"Registered service: Autodesk Access Service Host\"}",
+  "ingestionTime": 1785813421679
+ },
+ {
+  "timestamp": 1785813421642,
+  "message": "{\"level\": \"INFO\", \"message\": \"Registered service: FlexNet Licensing Service 64\"}",
+  "ingestionTime": 1785813421679
+ },
+ {
+  "timestamp": 1785813444555,
+  "message": "{\"level\": \"INFO\", \"ti\": \"\ud83d\udcdc\", \"type\": \"Worker\", \"subtype\": \"HostConfiguration\", \"message\": \"Host Config Time \u2014 Elapsed: 30s, Remaining: 3569s\", \"farm_id\": \"farm-fd8e9a84d9c04142848c6ea56c9d7568\", \"fleet_id\": \"fleet-25060df816a4493a88dc41840a25fbd6\", \"worker_id\": \"worker-92e2e1da123147179ececd2eae32a78d\", \"status\": \"Running\"}",
+  "ingestionTime": 1785813444961
+ },
+ {
+  "timestamp": 1785813454952,
+  "message": "{\"level\": \"INFO\", \"message\": \"WARNING: graft failed (  WARNING: The scripts pip3.11.exe and pip3.exe are installed in \"}",
+  "ingestionTime": 1785813455397
+ },
+ {
+  "timestamp": 1785813455063,
+  "message": "{\"level\": \"INFO\", \"message\": \"'C:\\\\Program Files\\\\Autodesk\\\\3ds Max 2025\\\\Python\\\\Scripts' which is not on PATH.). Invalidating cache \"}",
+  "ingestionTime": 1785813455419
+ },
+ {
+  "timestamp": 1785813455174,
+  "message": "{\"level\": \"INFO\", \"message\": \"and reinstalling.\"}",
+  "ingestionTime": 1785813455419
+ },
+ {
+  "timestamp": 1785813455279,
+  "message": "{\"level\": \"INFO\", \"message\": \"=== COLD boot: installing to persistent volume ===\"}",
+  "ingestionTime": 1785813455419
+ },
+ {
+  "timestamp": 1785813474598,
+  "message": "{\"level\": \"INFO\", \"ti\": \"\ud83d\udcdc\", \"type\": \"Worker\", \"subtype\": \"HostConfiguration\", \"message\": \"Host Config Time \u2014 Elapsed: 60s, Remaining: 3539s\", \"farm_id\": \"farm-fd8e9a84d9c04142848c6ea56c9d7568\", \"fleet_id\": \"fleet-25060df816a4493a88dc41840a25fbd6\", \"worker_id\": \"worker-92e2e1da123147179ececd2eae32a78d\", \"status\": \"Running\"}",
+  "ingestionTime": 1785813475109
+ },
+ {
+  "timestamp": 1785813504638,
+  "message": "{\"level\": \"INFO\", \"ti\": \"\ud83d\udcdc\", \"type\": \"Worker\", \"subtype\": \"HostConfiguration\", \"message\": \"Host Config Time \u2014 Elapsed: 90s, Remaining: 3509s\", \"farm_id\": \"farm-fd8e9a84d9c04142848c6ea56c9d7568\", \"fleet_id\": \"fleet-25060df816a4493a88dc41840a25fbd6\", \"worker_id\": \"worker-92e2e1da123147179ececd2eae32a78d\", \"status\": \"Running\"}",
+  "ingestionTime": 1785813505017
+ },
+ {
+  "timestamp": 1785813534672,
+  "message": "{\"level\": \"INFO\", \"ti\": \"\ud83d\udcdc\", \"type\": \"Worker\", \"subtype\": \"HostConfiguration\", \"message\": \"Host Config Time \u2014 Elapsed: 120s, Remaining: 3479s\", \"farm_id\": \"farm-fd8e9a84d9c04142848c6ea56c9d7568\", \"fleet_id\": \"fleet-25060df816a4493a88dc41840a25fbd6\", \"worker_id\": \"worker-92e2e1da123147179ececd2eae32a78d\", \"status\": \"Running\"}",
+  "ingestionTime": 1785813535164
+ },
+ {
+  "timestamp": 1785813544158,
+  "message": "{\"level\": \"INFO\", \"message\": \"Download: 00:01:29\"}",
+  "ingestionTime": 1785813544590
+ },
+ {
+  "timestamp": 1785813564694,
+  "message": "{\"level\": \"INFO\", \"ti\": \"\ud83d\udcdc\", \"type\": \"Worker\", \"subtype\": \"HostConfiguration\", \"message\": \"Host Config Time \u2014 Elapsed: 150s, Remaining: 3449s\", \"farm_id\": \"farm-fd8e9a84d9c04142848c6ea56c9d7568\", \"fleet_id\": \"fleet-25060df816a4493a88dc41840a25fbd6\", \"worker_id\": \"worker-92e2e1da123147179ececd2eae32a78d\", \"status\": \"Running\"}",
+  "ingestionTime": 1785813565061
+ },
+ {
+  "timestamp": 1785813594713,
+  "message": "{\"level\": \"INFO\", \"ti\": \"\ud83d\udcdc\", \"type\": \"Worker\", \"subtype\": \"HostConfiguration\", \"message\": \"Host Config Time \u2014 Elapsed: 180s, Remaining: 3419s\", \"farm_id\": \"farm-fd8e9a84d9c04142848c6ea56c9d7568\", \"fleet_id\": \"fleet-25060df816a4493a88dc41840a25fbd6\", \"worker_id\": \"worker-92e2e1da123147179ececd2eae32a78d\", \"status\": \"Running\"}",
+  "ingestionTime": 1785813595196
+ }
+]

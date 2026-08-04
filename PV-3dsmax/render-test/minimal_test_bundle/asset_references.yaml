@@ -1,0 +1,9 @@
+assetReferences:
+  inputs:
+    directories: []
+    filenames:
+    - /home/leongdl/moonray/deadline-cloud-for-3ds-max/test/integ/test_scripts/minimal_test/scene/test.max
+  outputs:
+    directories:
+    - /home/leongdl/moonray/PV-3dsmax/render-test/output
+  referencedPaths: []

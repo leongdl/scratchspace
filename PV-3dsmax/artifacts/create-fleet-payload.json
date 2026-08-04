@@ -1,0 +1,43 @@
+{
+  "farmId": "farm-fd8e9a84d9c04142848c6ea56c9d7568",
+  "displayName": "PV3dsMaxDebugFleet",
+  "description": "Debug fleet for PV-3dsmax iteration: 500GiB persistent volume, SSM access host config",
+  "roleArn": "arn:aws:iam::224071664257:role/BealineE2EFleetRole",
+  "minWorkerCount": 1,
+  "maxWorkerCount": 1,
+  "configuration": {
+    "serviceManagedEc2": {
+      "instanceCapabilities": {
+        "vCpuCount": {
+          "min": 8,
+          "max": 32
+        },
+        "memoryMiB": {
+          "min": 32768,
+          "max": 65536
+        },
+        "osFamily": "WINDOWS",
+        "cpuArchitectureType": "x86_64",
+        "rootEbsVolume": {
+          "sizeGiB": 250,
+          "iops": 3000,
+          "throughputMiB": 125
+        }
+      },
+      "instanceMarketOptions": {
+        "type": "on-demand"
+      },
+      "persistentVolumeConfiguration": {
+        "sizeGiB": 500,
+        "iops": 3000,
+        "throughputMiB": 250,
+        "mountPath": "D:",
+        "lastUsedTtlHours": 168
+      }
+    }
+  },
+  "hostConfiguration": {
+    "scriptBody": "<see deadline-cloud-samples/job_bundles/ssh_to_smf_windows/setup/host_config.ps1 - embedded inline at deploy time>",
+    "scriptTimeoutSeconds": 600
+  }
+}

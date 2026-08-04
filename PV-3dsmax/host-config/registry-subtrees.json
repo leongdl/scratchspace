@@ -1,0 +1,96 @@
+{
+  "comment": "Registry subtrees required for 3ds Max 2025 on a fresh Windows Server 2022 SMF worker. Discovered empirically via before/after reg.exe export diff around a real Setup.exe -q install (29,543 added keys total; see REGISTRY-KEYS.md). Values are NOT stored here: the cold path captures them with 'reg.exe export' into .reg files on the persistent volume, the warm path replays them with 'reg.exe import'. Services are re-registered from the JSON captures via 'sc.exe create' (a registry import alone is not visible to SCM until reboot).",
+  "schemaVersion": 1,
+  "maxVersion": "2025",
+  "grafts": {
+    "production": {
+      "comment": "What host-config/3dsmax-2025-pv-cached.ps1 Export-InstallerState captures. Minimal set, validated by 3dsmaxbatch -help + AdskLicensingInstHelper on a true warm boot. See openQuestion12 for the COM gap.",
+      "regExportSubtrees": [
+        "HKLM\\SOFTWARE\\Autodesk",
+        "HKLM\\SOFTWARE\\Wow6432Node\\Autodesk"
+      ],
+      "regExportFileAssociationClasses": [
+        "HKLM\\SOFTWARE\\Classes\\3dsmax",
+        "HKLM\\SOFTWARE\\Classes\\3dschr",
+        "HKLM\\SOFTWARE\\Classes\\3dsifl",
+        "HKLM\\SOFTWARE\\Classes\\3dsms",
+        "HKLM\\SOFTWARE\\Classes\\3dsmxp",
+        "HKLM\\SOFTWARE\\Classes\\3dsmcr",
+        "HKLM\\SOFTWARE\\Classes\\.max"
+      ]
+    },
+    "iteration": {
+      "comment": "What iteration/09-build-graft.ps1 captured (az3 volume, autodesk-graft.reg, 4,125 keys / 1.3 MB): the production subtrees PLUS every installer-added key outside HKLM\\SOFTWARE\\Microsoft. Superset; use this approach if real renders fail on missing COM registrations.",
+      "additionalAddedKeyGroups": {
+        "HKLM\\SOFTWARE\\Classes\\CLSID": 2053,
+        "HKLM\\SOFTWARE\\Classes\\Interface": 617,
+        "HKLM\\SOFTWARE\\Wow6432Node\\Classes": 267,
+        "HKLM\\SOFTWARE\\Classes\\WOW6432Node": 267,
+        "HKLM\\SOFTWARE\\Classes\\TypeLib": 131,
+        "HKLM\\SOFTWARE\\Classes\\Record": 52,
+        "HKLM\\SOFTWARE\\Classes\\AcSmComponents.* / AcSignCore.* / ADDFLOW.* / MaxInventorServerHost.* / AppID / Local Settings": 10
+      }
+    },
+    "excluded": {
+      "comment": "Deliberately never grafted.",
+      "subtrees": {
+        "HKLM\\SOFTWARE\\Microsoft\\Windows (Installer/servicing bookkeeping, 25,415 keys)": "render path does not need it; importing invites servicing operations",
+        "HKLM\\SOFTWARE\\Classes\\Installer (102 keys)": "Windows Installer bookkeeping",
+        "HKLM\\SOFTWARE\\Wow6432Node\\Microsoft, \\dotnet": ".NET runtime already on the AMI",
+        "CurrentVersion\\Uninstall entries": "render workers never uninstall"
+      }
+    }
+  },
+  "autodeskSubtreeContents": {
+    "comment": "Observed children of HKLM\\SOFTWARE\\Autodesk created by the 2025 installer (key counts from the diff).",
+    "keys": {
+      "3dsMax (incl. \\27.0)": 203,
+      "UPI2": 12,
+      "ADSKPrismTextureLibraryNew": 6,
+      "Reg": 5,
+      "ObjectDBX": 5,
+      "ADSKTextureLibraryNew": 4,
+      "PLM": 3
+    }
+  },
+  "services": {
+    "comment": "Captured as JSON (not .reg) because warm boot re-registers via sc.exe create for immediate SCM visibility. Fields captured: Name, DisplayName, PathName, StartMode, StartName, Description.",
+    "list": [
+      {
+        "name": "AdskLicensingService",
+        "startMode": "Auto",
+        "pathName": "C:\\Program Files (x86)\\Common Files\\Autodesk Shared\\AdskLicensing\\Current\\AdskLicensingService\\AdskLicensingService.exe",
+        "junctioned": true,
+        "warmBootPolicy": "create + start"
+      },
+      {
+        "name": "FlexNet Licensing Service 64",
+        "startMode": "Auto",
+        "pathName": "C:\\Program Files\\Common Files\\Macrovision Shared\\FlexNet Publisher\\FNPLicensingService64.exe",
+        "junctioned": false,
+        "payloadCapture": "robocopy 'C:\\Program Files\\Common Files\\Macrovision Shared' -> D:\\Software\\MacrovisionShared and C:\\ProgramData\\FLEXnet -> D:\\SoftwareData\\FLEXnet",
+        "warmBootPolicy": "restore files by robocopy, then create + start"
+      },
+      {
+        "name": "Autodesk Access Service Host",
+        "startMode": "Auto (as installed)",
+        "pathName": "C:\\Program Files\\Autodesk\\AdODIS\\V1\\Setup\\AdskAccessServiceHost.exe",
+        "junctioned": true,
+        "warmBootPolicy": "create then DISABLE (render workers do not need Autodesk Access)"
+      }
+    ]
+  },
+  "machineEnvironment": {
+    "setByInstaller": ["ADSK_3DSMAX_x64_2025", "Path (modified)"],
+    "appliedEveryBootByScript": [
+      "3DSMAX_EXECUTABLE", "ADSK_3DSMAX_BATCH_EXE", "ADSK_3DSMAX_EXECUTABLE",
+      "ADSK_3DSMAX_LOCATION", "ADSK_3DSMAX_VERSION", "ADSK_3DSMAX_x64_2025",
+      "PYTHONPATH", "Path"
+    ]
+  },
+  "openQuestion12": "Production graft omits the ~3,100 COM keys (CLSID/Interface/TypeLib/Record). 3dsmaxbatch -help and licensing validate without them; a full scene render may not. If renders fail with COM/class-not-registered errors, adopt the iteration capture (before/after export diff) on the cold path.",
+  "capturedArtifactLocations": {
+    "az2 volume-40042c1cbc9f4a068f68919d07e93ebd": "D:\\SoftwareRegistry\\graft\\{hklm-autodesk.reg, hklm-wow-autodesk.reg, cls-*.reg, services\\*.json} (production layout)",
+    "az3 volume-5bef90e3d0ad4ecdb45a868794e49da9": "D:\\SoftwareRegistry\\graft\\autodesk-graft.reg + services\\* (iteration layout) and D:\\SoftwareRegistry\\snapshots\\{before,after}-*.reg full-hive exports + added-software-keys.txt (complete 29,543-key list)"
+  }
+}
